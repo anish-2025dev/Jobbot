@@ -1,0 +1,46 @@
+# Local dev. In production DATABASE_URL points at Supabase and the db
+# service is unused; Redis and workers run on the always-on VM.
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: jobbot
+      POSTGRES_PASSWORD: jobbot
+      POSTGRES_DB: jobbot
+      TZ: UTC
+    command: ["postgres", "-c", "timezone=UTC"]
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobbot"]
+      interval: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    # OTPs and rate-limit buckets only: nothing worth persisting.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb"]
+    ports: ["6379:6379"]
+
+  api:
+    build: .
+    env_file: .env
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_started}
+    ports: ["8000:8000"]
+
+  # docker compose --profile test run --rm test
+  test:
+    build: .
+    profiles: ["test"]
+    environment:
+      TEST_DATABASE_URL: postgresql+psycopg://jobbot:jobbot@db:5432/postgres
+      DATABASE_URL: postgresql+psycopg://jobbot:jobbot@db:5432/jobbot
+      ENCRYPTION_KEY: test-only
+    depends_on:
+      db: {condition: service_healthy}
+    command: ["pytest", "-v"]
+
+volumes:
+  pgdata:
