@@ -12,10 +12,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && useradd --system --uid 10001 --home /srv jobbot && mkdir -p /opt/cache /srv && chown jobbot /opt/cache /srv
 ARG TECTONIC_VERSION=0.15.0
 ARG TYPST_VERSION=0.13.1
-RUN curl -fsSL "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${TECTONIC_VERSION}/tectonic-${TECTONIC_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+# x86_64 (Intel/AMD) or aarch64 (ARM, e.g. Oracle Ampere): both projects publish static builds for each.
+RUN ARCH="$(uname -m)" && case "$ARCH" in x86_64|aarch64) ;; *) echo "unsupported arch $ARCH" >&2; exit 1;; esac \
+    && curl -fsSL "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${TECTONIC_VERSION}/tectonic-${TECTONIC_VERSION}-${ARCH}-unknown-linux-musl.tar.gz" \
         | tar xz -C /usr/local/bin tectonic \
-    && curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-x86_64-unknown-linux-musl.tar.xz" \
-        | tar xJ --strip-components=1 -C /usr/local/bin typst-x86_64-unknown-linux-musl/typst \
+    && curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${ARCH}-unknown-linux-musl.tar.xz" \
+        | tar xJ --strip-components=1 -C /usr/local/bin "typst-${ARCH}-unknown-linux-musl/typst" \
     && tectonic --version && typst --version
 WORKDIR /srv
 COPY requirements.txt .

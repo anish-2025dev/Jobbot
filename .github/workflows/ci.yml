@@ -68,6 +68,25 @@ jobs:
           pip install ruff==0.16.8
           ruff check --select F,E9,B --ignore B008,B904,B905,E731 .
 
+  docker:
+    # Builds the worker image (resume tools + Chromium + a real resume compile) on Intel and ARM,
+    # so the image is known to work on either kind of free VM before anyone deploys it.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build worker image
+        run: docker build --target worker -t jobbot-worker .
+      - name: Smoke test
+        run: |
+          docker run --rm jobbot-worker tectonic --version
+          docker run --rm -e DATABASE_URL=postgresql+psycopg://x@localhost/x -e ENCRYPTION_KEY=ci jobbot-worker python -c "import app.main, app.apply.runner; print('imports ok')"
+          docker run --rm jobbot-worker python -c "from playwright.sync_api import sync_playwright as p; b = p().start().chromium.launch(); print(b.version); b.close()"
+
   security:
     # Advisory: findings show in the log and in the Security tab, they do not fail the build.
     runs-on: ubuntu-24.04
