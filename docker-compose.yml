@@ -1,0 +1,69 @@
+# Local / single-VM deployment. For Supabase, set DATABASE_URL in .env to the
+# direct or session connection (port 5432) and drop the `db` service.
+x-app: &app
+  build: {context: ., target: app}
+  env_file: .env
+  restart: unless-stopped
+  depends_on:
+    db: {condition: service_healthy}
+    redis: {condition: service_started}
+    migrate: {condition: service_completed_successfully}
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment: {POSTGRES_USER: jobbot, POSTGRES_PASSWORD: jobbot, POSTGRES_DB: jobbot, TZ: UTC}
+    command: ["postgres", "-c", "timezone=UTC"]
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U jobbot"], interval: 3s, retries: 30}
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # OTPs, rate-limit buckets, locks: nothing worth persisting.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    restart: unless-stopped
+
+  migrate:
+    build: {context: ., target: app}
+    env_file: .env
+    depends_on: {db: {condition: service_healthy}}
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *app
+    ports: ["8000:8000"]
+    command: ["python", "-m", "app.cli", "api"]
+    healthcheck: {test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"], interval: 30s}
+
+  scheduler:
+    <<: *app
+    command: ["python", "-m", "app.cli", "scheduler"]
+
+  telegram:
+    <<: *app
+    command: ["python", "-m", "app.cli", "telegram"]
+    profiles: ["telegram"]          # enable once TELEGRAM_BOT_TOKEN is set: --profile telegram
+
+  worker:
+    <<: *app
+    build: {context: ., target: worker}
+    command: ["python", "-m", "app.cli", "apply-worker"]
+    shm_size: "1gb"                  # Chromium needs more than Docker's 64 MB default
+
+  test:
+    build: {context: ., target: test}
+    profiles: ["test"]
+    environment:
+      TEST_DATABASE_URL: postgresql+psycopg://jobbot:jobbot@db:5432/postgres
+      DATABASE_URL: postgresql+psycopg://jobbot:jobbot@db:5432/jobbot
+      REDIS_URL: redis://redis:6379/15
+      ENCRYPTION_KEY: test-only
+    depends_on: {db: {condition: service_healthy}, redis: {condition: service_started}}
+    shm_size: "1gb"
+    command: ["pytest", "-q"]
+
+volumes:
+  pgdata:
