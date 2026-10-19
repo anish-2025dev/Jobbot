@@ -112,9 +112,9 @@ def enqueue(env, app_id):
         return try_enqueue(s, env.uid, app_id)
 
 
-def test_full_cycle_without_referral(module_db, site, browser):
+def _cycle_until_applying(module_db, site):
+    """P4 done-test up to the hold release; needs no browser, so CI always runs it."""
     from app import db
-    from app.apply.runner import run_application
     from app.notify import bot_loop
     env = Env(module_db, site)
     aid = env.app("/greenhouse/northwind/jobs/9001")
@@ -137,13 +137,14 @@ def test_full_cycle_without_referral(module_db, site, browser):
     with db.worker_session() as s:
         code = new_link_code(s, env.uid)
     answers = []
+    chat = 4242 + env.uid.int % 100_000                # one Telegram chat per test user
     bot = TelegramBot("t", transport=httpx.MockTransport(
         lambda r: answers.append(json.loads(r.content)) or httpx.Response(200, json={"ok": True, "result": True})))
-    bot_loop.handle_update(bot, {"update_id": 1, "message": {"chat": {"id": 4242}, "text": f"/start {code}"}})
+    bot_loop.handle_update(bot, {"update_id": 1, "message": {"chat": {"id": chat}, "text": f"/start {code}"}})
     idx = {c["role"]: i for i, c in enumerate(rq["contacts"])}
     for role, data in (("peer", "ok"), ("manager", "ok"), ("recruiter", "skip")):
         bot_loop.handle_update(bot, {"update_id": 2, "callback_query": {
-            "id": "cb", "data": f"{data}:{rq['id']}:{idx[role]}", "message": {"chat": {"id": 4242}}}})
+            "id": "cb", "data": f"{data}:{rq['id']}:{idx[role]}", "message": {"chat": {"id": chat}}}})
     rq = env.rq()
     assert rq["status"] == "scheduled"
     times = [datetime.fromisoformat(c["scheduled_at"]) for c in rq["contacts"] if c["status"] == "scheduled"]
@@ -187,6 +188,16 @@ def test_full_cycle_without_referral(module_db, site, browser):
     assert env.rq()["status"] == "sent"
     env.tick(now=rq["apply_at"] + timedelta(minutes=1))
     assert env.rq()["status"] == "applying"
+    return env, aid
+
+
+def test_full_cycle_without_referral(module_db, site):
+    _cycle_until_applying(module_db, site)
+
+
+def test_full_cycle_then_apply_in_browser(module_db, site, browser):
+    from app.apply.runner import run_application
+    env, aid = _cycle_until_applying(module_db, site)
     out = run_application(aid, browser)
     assert out.status == "applied", out
     assert site.submissions[-1].fields["q_hear"] != "Employee referral"
@@ -198,10 +209,9 @@ def test_full_cycle_without_referral(module_db, site, browser):
         assert tuple(row) == (0, 1)
 
 
-def test_referral_before_hold_applies_immediately(module_db, site, browser):
-    from app.apply.runner import run_application
+def _referral_until_applying(module_db, site, job="9101", ref="9102"):
     env = Env(module_db, site, mode="auto", company="Contoso Ltd", domain="contoso.in")
-    aid = env.app("/greenhouse/contoso/jobs/9101")
+    aid = env.app(f"/greenhouse/contoso/jobs/{job}")
     assert enqueue(env, aid)
     env.tick()                                                           # auto mode: straight to scheduled
     rq = env.rq()
@@ -210,7 +220,7 @@ def test_referral_before_hold_applies_immediately(module_db, site, browser):
     env.tick(now=t)
     rq = env.rq()
     peer = next(c for c in rq["contacts"] if c["role"] == "peer")
-    link = site.add("/greenhouse/contoso/jobs/9102")
+    link = site.add(f"/greenhouse/contoso/jobs/{ref}")
     env.box.add(make_msg(peer["email"], "Re: Referral request",
                          f"Done! I've referred you. Use this referral link to apply: {link}",
                          thread_id=peer["gmail_thread_id"]))
@@ -218,10 +228,20 @@ def test_referral_before_hold_applies_immediately(module_db, site, browser):
     rq = env.rq()
     assert rq["status"] == "applying" and rq["referral"]["by"] == "Priya Sharma"
     assert any("Applying now with the referral" in n for n in env.notes)
+    return env, aid
+
+
+def test_referral_before_hold_applies_immediately(module_db, site):
+    _referral_until_applying(module_db, site)
+
+
+def test_referral_before_hold_then_apply_in_browser(module_db, site, browser):
+    from app.apply.runner import run_application
+    env, aid = _referral_until_applying(module_db, site, job="9111", ref="9112")
     out = run_application(aid, browser)
     assert out.status == "applied", out
     sub = site.submissions[-1]
-    assert sub.path.endswith("/9102") and sub.fields["q_hear"] == "Employee referral"
+    assert sub.path.endswith("/9112") and sub.fields["q_hear"] == "Employee referral"
     with module_db.connect() as c:
         assert c.execute(text("SELECT via FROM applied_ledger WHERE user_id = :u"), {"u": env.uid}).scalar() == 1
 
@@ -306,3 +326,55 @@ def test_daily_job_cap(module_db, site):
     with db.worker_session() as s:
         results = [try_enqueue(s, env.uid, a) for a in ids]
     assert results.count(True) == 10 and results[-1] is False          # C14: 10 jobs/day
+
+
+# --- review fixes (PR #8) ---------------------------------------------------------------
+def test_send_failure_keeps_earlier_sends_and_never_resends(module_db, site):
+    env = Env(module_db, site, mode="auto", company="Alpine Ski House", domain="alpineski.io")
+    aid = env.app("/greenhouse/alpine/jobs/9701")
+    assert enqueue(env, aid)
+    env.tick()
+    rq = env.rq()
+    assert rq["status"] == "scheduled"
+    real_send, calls = env.box.send, []
+
+    def flaky(raw, thread_id=None):
+        calls.append(1)
+        if len(calls) == 2:
+            raise TimeoutError("smtp timed out")
+        return real_send(raw, thread_id)
+    env.box.send = flaky
+    t = max(datetime.fromisoformat(c["scheduled_at"]) for c in rq["contacts"]) + timedelta(minutes=1)
+    stats = env.tick(now=t)
+    assert stats["errors"] == 0                              # handled inside the send step, not a crashed row
+    contacts = env.rq()["contacts"]
+    statuses = sorted(c["status"] for c in contacts)
+    assert statuses.count("sent") == 1 and any(c.get("skip_reason", "").startswith("send failed") for c in contacts)
+    with module_db.connect() as c:                           # the first send is committed, not rolled back
+        assert c.execute(text("SELECT count(*) FROM outreach_log WHERE user_id = :u"), {"u": env.uid}).scalar() == 1
+    env.box.send = real_send
+    env.tick(now=t + timedelta(minutes=30))
+    sent_to = [c["email"] for c in env.rq()["contacts"] if c["status"] == "sent"]
+    assert len(sent_to) == len(set(sent_to))                 # nobody emailed twice
+    failed = next(c for c in env.rq()["contacts"] if c.get("skip_reason", "").startswith("send failed"))
+    assert failed["status"] == "skipped"                     # a possibly-delivered email is never retried
+
+
+def test_one_failing_row_does_not_block_the_queue(module_db, site, monkeypatch):
+    from app.outreach import queue
+    a = Env(module_db, site, company="Coho Winery", domain="coho.io")
+    b = Env(module_db, site, company="Woodgrove Bank", domain="woodgrove.io")
+    assert enqueue(a, a.app("/greenhouse/coho/jobs/9801"))
+    assert enqueue(b, b.app("/greenhouse/woodgrove/jobs/9802"))
+    bad_id = a.rq()["id"]
+    real = queue.step_finding
+
+    def step(s, rq, *args, **kw):
+        if rq["id"] == bad_id:
+            raise RuntimeError("provider returned garbage")
+        return real(s, rq, *args, **kw)
+    monkeypatch.setattr(queue, "step_finding", step)
+    stats = b.tick()
+    assert stats["errors"] >= 1
+    assert a.rq()["status"] == "finding"                     # rolled back alone, retried next tick
+    assert b.rq()["status"] == "awaiting_approval"           # the next row still moved on

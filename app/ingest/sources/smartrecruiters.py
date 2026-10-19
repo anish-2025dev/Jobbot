@@ -36,7 +36,7 @@ def fetch(f: Fetcher, company_id: str, company: str, title_filter: TitleFilter =
                 company=(d.get("company") or {}).get("name") or company, company_slug=company_id,
                 title=(d.get("name") or p.get("name") or "").strip(),
                 url=d.get("postingUrl") or f"https://jobs.smartrecruiters.com/{company_id}/{p['id']}",
-                apply_url=d.get("applyUrl"), req_id=str(d.get("refNumber") or p.get("refNumber") or p["id"]),
+                apply_url=d.get("applyUrl"), req_id=str(p["id"]),   # posting id, as detect() reads it from URLs
                 description=desc, description_is_html=True, location=loc_text or None,
                 posted_at=parse_iso(d.get("releasedDate") or p.get("releasedDate")),
                 workplace="remote" if loc.get("remote") else None,

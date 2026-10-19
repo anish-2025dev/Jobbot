@@ -128,8 +128,13 @@ def job_mail():
     notify, llm = get_notifier(), get_llm()
     totals = {"users": 0, "scanned": 0, "trashed": 0, "alerts": 0, "alert_jobs": 0, "errors": 0}
     for uid in mail_users():
-        with db.worker_session() as s:
-            client = mail_client(s, uid)
+        try:
+            with db.worker_session() as s:
+                client = mail_client(s, uid)        # decrypting a bad credential must not stop other users
+        except Exception:
+            log.exception("loading mail credentials for %s failed", uid)
+            totals["errors"] += 1
+            continue
         if client is None:
             continue
         try:
@@ -153,9 +158,13 @@ def job_mail():
         totals["alerts"] += rep.alerts
         if rep.alert_jobs:                               # Tier C: parsed job alerts join the pipeline (manual-only)
             from app.apply.routing import make_router
-            run_round(_fetcher(), tier_a=False, tier_b=False, user_ids=[uid], extra_raws=rep.alert_jobs,
-                      router=make_router(notify))
-            totals["alert_jobs"] += len(rep.alert_jobs)
+            try:
+                run_round(_fetcher(), tier_a=False, tier_b=False, user_ids=[uid], extra_raws=rep.alert_jobs,
+                          router=make_router(notify))
+                totals["alert_jobs"] += len(rep.alert_jobs)
+            except Exception:
+                log.exception("job alerts for %s failed", uid)
+                totals["errors"] += 1
     return totals
 
 

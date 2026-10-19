@@ -5,6 +5,8 @@ import htm from "htm";
 
 const html = htm.bind(h);
 const BUCKETS = { 3: "High", 2: "Medium", 1: "Low", 0: "Stretch" };
+// Links come from job boards and mail; only http(s) may become an href (blocks javascript: URLs).
+const safeUrl = (u) => { if (!u || typeof u !== "string") return null; try { const p = new URL(u, location.href); return p.protocol === "https:" || p.protocol === "http:" ? p.href : null; } catch { return null; } };
 
 // ---------------------------------------------------------------- api
 const store = {
@@ -153,7 +155,7 @@ function Reply({ r, reload }) {
     <div><div class="title">${kinds[r.kind] || r.kind}${r.company_name ? `: ${r.company_name}` : ""}</div>
       <div class="meta">${r.title || ""}</div>${r.snippet && html`<div class="meta">"${r.snippet.slice(0, 160)}"</div>`}</div>
     <div class="side">${r.deadline ? html`<strong>Due ${when(r.deadline)}</strong>` : ago(r.received_at)}</div>
-    <div class="actions">${r.gmail_url && html`<a class="btn" href=${r.gmail_url} target="_blank" rel="noopener">Open in Gmail</a>`}
+    <div class="actions">${safeUrl(r.gmail_url) && html`<a class="btn" href=${safeUrl(r.gmail_url)} target="_blank" rel="noopener">Open in Gmail</a>`}
       <button class="btn" onClick=${done}>Mark done</button></div>
   </li>`;
 }
@@ -198,10 +200,10 @@ function JobRow({ j, reload }) {
       <div class="meta">${ago(j.posted_at)}</div>
     </div>
     <div class="actions">
-      <a class="btn" href=${j.url} target="_blank" rel="noopener">Open posting</a>
+      ${safeUrl(j.url) && html`<a class="btn" href=${safeUrl(j.url)} target="_blank" rel="noopener">Open posting</a>`}
       <button class="btn" onClick=${() => resume("pdf")}>Resume PDF</button>
       <button class="btn" onClick=${() => resume("docx")}>DOCX</button>
-      ${j.app_status ? html`<span class="meta">Status: ${j.app_status}</span>` : html`
+      ${j.app_status && j.app_status !== "waiting" ? html`<span class="meta">Status: ${j.app_status}</span>` : html`
         ${j.bucket >= 1 && html`<button class="btn" onClick=${queue}>Queue for auto-apply</button>`}
         <button class="btn primary" onClick=${applied}>I applied</button>`}
       <button class="btn" aria-expanded=${open} onClick=${() => setOpen(!open)}>${open ? "Less" : "Details"}</button>
@@ -247,7 +249,7 @@ function WaitingRow({ w, reload, compact }) {
       ${w.salary_max && html`<div>${fmtMoney(w.salary_max)}</div>`}</div>
     <div class=${`drain ${left < 4 ? "urgent" : ""}`} role="img" aria-label=${`${Math.round(left)} of 24 hours left`}><span style=${`width:${pct}%`}></span></div>
     ${!compact && html`<div class="actions">
-      <a class="btn primary" href=${w.apply_url} target="_blank" rel="noopener">Open application</a>
+      ${safeUrl(w.apply_url) && html`<a class="btn primary" href=${safeUrl(w.apply_url)} target="_blank" rel="noopener">Open application</a>`}
       <button class="btn" onClick=${() => resume("pdf")}>Resume PDF</button>
       <button class="btn" onClick=${() => resume("docx")}>DOCX</button>
       <button class="btn" onClick=${applied} disabled=${!!w.ready_at}>I applied</button>

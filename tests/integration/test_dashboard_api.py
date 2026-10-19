@@ -131,9 +131,24 @@ def test_telegram_link_and_gmail_connect(api):
     assert len(code) == 8
     assert api.get(f"/users/{uid}/gmail/connect", headers=h).status_code == 409
     api.put(f"/users/{uid}/credentials/gmail_client", json={"secret": {"client_id": "cid.apps", "client_secret": "s"}}, headers=h)
-    url = api.get(f"/users/{uid}/gmail/connect", headers=h).json()["url"]
+    r = api.get(f"/users/{uid}/gmail/connect", headers=h)
+    url = r.json()["url"]
     assert url.startswith("https://accounts.google.com/") and "gmail.send" in url and "state=" in url
+    assert "jobbot_oauth_nonce" in r.headers["set-cookie"] and "httponly" in r.headers["set-cookie"].lower()
     assert api.get("/oauth/google/callback?state=forged&code=x", headers=NOKEY).status_code == 400
+    # a valid state from this user's link, opened in a browser without the nonce cookie: rejected
+    from urllib.parse import parse_qs, urlparse
+    state = parse_qs(urlparse(url).query)["state"][0]
+    api.cookies.clear()
+    bad = api.get(f"/oauth/google/callback?state={state}&code=x", headers=NOKEY)
+    assert bad.status_code == 400 and "another browser" in bad.text
+    # same browser (cookie present): accepted; the error text from the query string is escaped
+    url2 = api.get(f"/users/{uid}/gmail/connect", headers=h).json()["url"]
+    state2 = parse_qs(urlparse(url2).query)["state"][0]
+    xss = api.get("/oauth/google/callback", params={"state": state2, "error": "<script>alert(1)</script>"},
+                  headers=NOKEY)
+    assert xss.status_code == 200 and "Google returned" in xss.text
+    assert "<script>" not in xss.text and "&lt;script&gt;" in xss.text
 
 
 # --- ranked list, manual apply ----------------------------------------------------------

@@ -65,6 +65,24 @@ def _raise_for(provider: str, r: httpx.Response) -> None:
     raise ProviderError(f"{provider}: {r.status_code} {r.text[:150]}")
 
 
+def _request(provider: str, transport, method: str, url: str, **kw) -> dict:
+    """One provider call. Timeouts, connection errors and non-JSON bodies become ProviderError,
+    so contact search moves on to the next provider instead of crashing the outreach tick."""
+    try:
+        with httpx.Client(timeout=30, transport=transport) as c:
+            r = c.request(method, url, **kw)
+    except httpx.HTTPError as e:
+        raise ProviderError(f"{provider}: {type(e).__name__}: {e}") from e
+    _raise_for(provider, r)
+    try:
+        data = r.json()
+    except ValueError as e:
+        raise ProviderError(f"{provider}: response is not JSON") from e
+    if not isinstance(data, dict):
+        raise ProviderError(f"{provider}: unexpected response shape ({type(data).__name__})")
+    return data
+
+
 @dataclass
 class Apollo:
     api_key: str
@@ -73,11 +91,9 @@ class Apollo:
     base: str = "https://api.apollo.io/api/v1"
 
     def _post(self, path: str, body: dict) -> dict:
-        with httpx.Client(timeout=30, transport=self.transport) as c:
-            r = c.post(f"{self.base}{path}", json=body,
-                       headers={"X-Api-Key": self.api_key, "Content-Type": "application/json", "Cache-Control": "no-cache"})
-        _raise_for(self.name, r)
-        return r.json()
+        return _request(self.name, self.transport, "POST", f"{self.base}{path}", json=body,
+                        headers={"X-Api-Key": self.api_key, "Content-Type": "application/json",
+                                 "Cache-Control": "no-cache"})
 
     def resolve_domain(self, company: str) -> str | None:
         data = self._post("/mixed_companies/search", {"q_organization_name": company, "page": 1, "per_page": 1})
@@ -121,10 +137,9 @@ class Hunter:
     base: str = "https://api.hunter.io/v2"
 
     def _get(self, path: str, params: dict) -> dict:
-        with httpx.Client(timeout=30, transport=self.transport) as c:
-            r = c.get(f"{self.base}{path}", params={**params, "api_key": self.api_key})
-        _raise_for(self.name, r)
-        return r.json().get("data") or {}
+        data = _request(self.name, self.transport, "GET", f"{self.base}{path}",
+                        params={**params, "api_key": self.api_key})
+        return data.get("data") or {}
 
     def resolve_domain(self, company: str) -> str | None:
         return self._get("/domain-search", {"company": company, "limit": 1}).get("domain")
@@ -161,20 +176,17 @@ class Snov:
     def _auth(self) -> str:
         if self._token and time.time() < self._exp - 60:
             return self._token
-        with httpx.Client(timeout=30, transport=self.transport) as c:
-            r = c.post(f"{self.base}/v1/oauth/access_token", data={"grant_type": "client_credentials",
-                                                                   "client_id": self.client_id,
-                                                                   "client_secret": self.client_secret})
-        _raise_for(self.name, r)
-        data = r.json()
+        data = _request(self.name, self.transport, "POST", f"{self.base}/v1/oauth/access_token",
+                        data={"grant_type": "client_credentials", "client_id": self.client_id,
+                              "client_secret": self.client_secret})
+        if not data.get("access_token"):
+            raise ProviderError(f"{self.name}: no access token in response")
         self._token, self._exp = data["access_token"], time.time() + int(data.get("expires_in", 3600))
         return self._token
 
     def _post(self, path: str, body: dict) -> dict:
-        with httpx.Client(timeout=30, transport=self.transport) as c:
-            r = c.post(f"{self.base}{path}", data={**body, "access_token": self._auth()})
-        _raise_for(self.name, r)
-        return r.json()
+        return _request(self.name, self.transport, "POST", f"{self.base}{path}",
+                        data={**body, "access_token": self._auth()})
 
     def resolve_domain(self, company: str) -> str | None:
         return None

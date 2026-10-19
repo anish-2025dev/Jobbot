@@ -121,9 +121,16 @@ class WorkdayAdapter(Adapter):
             return super().apply(page, decision, field)
         b = page.locator(f'[data-jobbot-lb="{field.key[5:]}"]').first
         b.click()
-        texts = [o.strip() for o in page.locator('[role="option"]').all_inner_texts()]
-        choice = pick_option(texts, str(decision.value)) or str(decision.value)
-        page.locator('[role="option"]', has_text=choice).first.click()
+        options = page.locator('[role="option"]')
+        texts = [o.strip() for o in options.all_inner_texts()]
+        choice = pick_option(texts, str(decision.value))
+        # Click the option whose whole text equals the choice. A substring match would pick
+        # "British Indian Ocean Territory" for "India" or "Female" for "Male".
+        idx = next((i for i, t in enumerate(texts) if choice is not None and t == choice), None)
+        if idx is None:
+            page.keyboard.press("Escape")
+            raise ValueError(f"no option in '{field.label[:60]}' matches {str(decision.value)[:60]!r}")
+        options.nth(idx).click()
 
     # --- wizard ----------------------------------------------------------------------
     def advance(self, page) -> bool:

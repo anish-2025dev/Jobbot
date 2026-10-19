@@ -207,21 +207,55 @@ def probe(f: Fetcher, ref: CompanyRef) -> CompanyRef | None:
     return None
 
 
+def _stored_board_status(f: Fetcher, ats: str | None, slug: str | None, host: str | None) -> str:
+    """'ok' (board answers), 'gone' (404/410), or 'unknown' (couldn't tell: outage, odd payload,
+    or an empty board, which may just mean no openings this week)."""
+    from app.ingest.sources import ashby, greenhouse, lever, smartrecruiters, workday
+    probers = {"greenhouse": greenhouse.probe, "lever": lever.probe, "ashby": ashby.probe,
+               "smartrecruiters": smartrecruiters.probe}
+    if not slug or ats in (None, "unknown"):
+        return "gone"
+    try:
+        if ats in probers:
+            return "ok" if probers[ats](f, slug) else "unknown"
+        if ats == "workday" and host:
+            return "ok" if workday.probe(f, slug, host) else "unknown"
+    except NotFoundError:
+        return "gone"
+    except Exception as e:          # SourceError, or a payload of an unexpected shape
+        log.warning("re-validating %s/%s: %r", ats, slug, e)
+    return "unknown"
+
+
 def reprobe_stale(s: Session, f: Fetcher, limit: int = 200) -> int:
-    """Weekly: companies switch ATS. Re-detect anything not probed in 7 days."""
-    rows = s.execute(text("""SELECT id, name, careers_url, ats_type, ats_slug FROM companies
+    """Weekly: companies switch ATS. Re-detect anything not probed in 7 days.
+
+    A stored board that still answers is kept (name-derived guesses never replace it). A board is
+    only cleared when it is confirmed gone and nothing else is found; a failed or inconclusive
+    check (outage, rate limit) never erases good data."""
+    rows = s.execute(text("""SELECT id, name, careers_url, ats_type::text AS ats_type, ats_slug, ats_host
+                             FROM companies
                              WHERE last_probed_at IS NULL OR last_probed_at < now() - interval '7 days'
                              ORDER BY last_probed_at ASC NULLS FIRST LIMIT :n"""), {"n": limit}).mappings().all()
     changed = 0
     for r in rows:
-        found = probe(f, CompanyRef(name=r["name"], careers_url=r["careers_url"]))
+        status = "gone" if r["ats_type"] in (None, "unknown", "jsonld") else \
+            _stored_board_status(f, r["ats_type"], r["ats_slug"], r["ats_host"])
+        found = None
+        if status != "ok":
+            found = probe(f, CompanyRef(name=r["name"], careers_url=r["careers_url"]))
         if found and (found.ats != r["ats_type"] or found.slug != r["ats_slug"]):
             changed += 1
-        s.execute(text("""UPDATE companies SET last_probed_at = now(),
-                          ats_type = CAST(:ats AS ats_type), ats_slug = :slug, ats_host = :host
-                          WHERE id = :id"""),
-                  {"id": r["id"], "ats": found.ats if found else "unknown",
-                   "slug": found.slug if found else None, "host": found.host if found else None})
+            s.execute(text("""UPDATE companies SET last_probed_at = now(),
+                              ats_type = CAST(:ats AS ats_type), ats_slug = :slug, ats_host = :host
+                              WHERE id = :id"""),
+                      {"id": r["id"], "ats": found.ats, "slug": found.slug, "host": found.host})
+        elif found is None and status == "gone" and r["ats_type"] not in (None, "unknown"):
+            changed += 1
+            s.execute(text("""UPDATE companies SET last_probed_at = now(), ats_type = 'unknown',
+                              ats_slug = NULL, ats_host = NULL WHERE id = :id"""), {"id": r["id"]})
+        else:                       # still valid, unchanged, or inconclusive: keep what we have
+            s.execute(text("UPDATE companies SET last_probed_at = now() WHERE id = :id"), {"id": r["id"]})
     return changed
 
 

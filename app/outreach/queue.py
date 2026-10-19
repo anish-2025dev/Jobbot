@@ -258,7 +258,15 @@ def step_send(s: Session, rq: dict, client, *, now: datetime | None = None, noti
         raw, mid = C.build_mime(from_name=vault.personal.full_name, from_addr=from_addr, to_name=c["name"],
                                 to_addr=c["email"], subject=c["subject"], body=c["body"], attachment=pdf_bytes,
                                 attachment_name=f"{vault.personal.full_name.replace(' ', '_')}_Resume.pdf")
-        res = client.send(raw)
+        try:
+            res = client.send(raw)
+        except Exception as e:
+            # Not retried: the server may have accepted it before failing, and a contact must never
+            # get the same email twice. Stop this tick; later contacts stay scheduled for the next one.
+            log.warning("outreach send to contact %s failed: %s", c.get("contact_id"), e)
+            c["status"] = "skipped"
+            c["skip_reason"] = f"send failed: {e}"[:200]
+            break
         try:
             client.modify(res["id"], add=["JobBot/Outreach"])               # stays in Sent, labeled
         except Exception as e:
@@ -417,37 +425,47 @@ def tick(s_factory, *, now: datetime | None = None, notify: Notify | None = None
          transport=None, llm=None) -> dict:
     """Advance every open queue item one step. Runs every few minutes."""
     now = now or datetime.now(timezone.utc)
-    stats = {"finding": 0, "sent": 0, "released": 0, "applied": 0, "timed_out": 0}
+    stats = {"finding": 0, "sent": 0, "released": 0, "applied": 0, "timed_out": 0, "errors": 0}
     with s_factory() as s:
         rows = [dict(r) for r in s.execute(text(
             "SELECT * FROM referral_queue WHERE status IN ('finding', 'awaiting_approval', 'scheduled', 'sent', 'applying')"
         )).mappings()]
-    for rq in rows:
-        with s_factory() as s:
-            rq = dict(s.execute(text("SELECT * FROM referral_queue WHERE id = :i FOR UPDATE SKIP LOCKED"),
-                                {"i": rq["id"]}).mappings().first() or {})
-            if not rq:
-                continue
-            st = rq["status"]
-            if st == "finding":
-                step_finding(s, rq, notify, transport, llm)
-                stats["finding"] += 1
-            elif st == "awaiting_approval":
-                if rq["created_at"] < now - timedelta(hours=get_settings().outreach_approval_timeout_hours):
-                    _skip(s, rq, "drafts not approved in time")
-                    stats["timed_out"] += 1
-            elif st == "scheduled":
-                client = mail_client_for(s, rq["user_id"]) if mail_client_for else None
-                if client is not None:
-                    stats["sent"] += step_send(s, rq, client, now=now, notify=notify)
-            elif st == "sent" and rq["apply_at"] and rq["apply_at"] <= now:
-                release_hold(s, rq, transport=transport)                   # C15: apply at T+24h without referral
-                stats["released"] += 1
-            elif st == "applying":
-                done = s.execute(text("SELECT applied_at FROM applications WHERE id = :a"),
-                                 {"a": rq["application_id"]}).scalar()
-                if done is not None:
-                    s.execute(text("UPDATE referral_queue SET status = 'applied', closed_at = now() WHERE id = :i"),
-                              {"i": rq["id"]})
-                    stats["applied"] += 1
+    for row in rows:
+        try:
+            _tick_one(s_factory, row["id"], stats, now=now, notify=notify, mail_client_for=mail_client_for,
+                      transport=transport, llm=llm)
+        except Exception:           # one bad row rolls back alone; the rest of the queue still moves
+            log.exception("referral_queue %s failed", row["id"])
+            stats["errors"] += 1
     return stats
+
+
+def _tick_one(s_factory, rq_id: int, stats: dict, *, now: datetime, notify, mail_client_for, transport,
+              llm) -> None:
+    with s_factory() as s:
+        rq = dict(s.execute(text("SELECT * FROM referral_queue WHERE id = :i FOR UPDATE SKIP LOCKED"),
+                            {"i": rq_id}).mappings().first() or {})
+        if not rq:
+            return
+        st = rq["status"]
+        if st == "finding":
+            step_finding(s, rq, notify, transport, llm)
+            stats["finding"] += 1
+        elif st == "awaiting_approval":
+            if rq["created_at"] < now - timedelta(hours=get_settings().outreach_approval_timeout_hours):
+                _skip(s, rq, "drafts not approved in time")
+                stats["timed_out"] += 1
+        elif st == "scheduled":
+            client = mail_client_for(s, rq["user_id"]) if mail_client_for else None
+            if client is not None:
+                stats["sent"] += step_send(s, rq, client, now=now, notify=notify)
+        elif st == "sent" and rq["apply_at"] and rq["apply_at"] <= now:
+            release_hold(s, rq, transport=transport)                   # C15: apply at T+24h without referral
+            stats["released"] += 1
+        elif st == "applying":
+            done = s.execute(text("SELECT applied_at FROM applications WHERE id = :a"),
+                             {"a": rq["application_id"]}).scalar()
+            if done is not None:
+                s.execute(text("UPDATE referral_queue SET status = 'applied', closed_at = now() WHERE id = :i"),
+                          {"i": rq["id"]})
+                stats["applied"] += 1

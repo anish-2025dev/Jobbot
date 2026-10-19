@@ -194,11 +194,15 @@ def test_oauth_state_roundtrip_and_tamper(monkeypatch):
     monkeypatch.setenv("SESSION_SECRET", "s3cret")
     app.config.get_settings.cache_clear()
     uid = uuid.uuid4()
-    assert read_state(make_state(uid)) == uid
-    bad = make_state(uid)[:-3] + "AAA"
+    assert read_state(make_state(uid, "n1"), "n1") == uid
+    bad = make_state(uid, "n1")[:-3] + "AAA"
     with pytest.raises(OAuthError):
-        read_state(bad)
-    url = consent_url(uid, "cid.apps.googleusercontent.com", "http://localhost:8000/oauth/google/callback")
+        read_state(bad, "n1")
+    with pytest.raises(OAuthError):                  # started in another browser (no / wrong nonce cookie)
+        read_state(make_state(uid, "n1"), "other")
+    with pytest.raises(OAuthError):
+        read_state(make_state(uid, "n1"), None)
+    url = consent_url(uid, "cid.apps.googleusercontent.com", "http://localhost:8000/oauth/google/callback", "n1")
     q = parse_qs(urlparse(url).query)
     assert q["access_type"] == ["offline"] and q["prompt"] == ["consent"]
     assert "gmail.modify" in q["scope"][0] and "gmail.send" in q["scope"][0]
