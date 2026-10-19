@@ -2,7 +2,6 @@
 enforced. Real Chromium (Playwright) fills real forms on a local fake ATS;
 the gate runs on real Postgres."""
 import json
-import os
 from datetime import timedelta
 from pathlib import Path
 
@@ -16,7 +15,6 @@ pytestmark = pytest.mark.integration
 ROOT = Path(__file__).parents[2]
 VAULT = json.loads((ROOT / "examples/vault.example.json").read_text())
 JD = (ROOT / "examples/jd.example.txt").read_text()
-os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers")
 
 
 def _has_chromium():

@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 pytestmark = pytest.mark.integration
-os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers")
 VAULT = json.loads((Path(__file__).parents[2] / "examples/vault.example.json").read_text())
 
 
@@ -76,7 +75,7 @@ def test_signup_and_every_view_renders(server, browser):
         page.wait_for_selector(f"h1:has-text('{heading}')")
     # vault editor loads the saved vault and validates it
     page.get_by_role("button", name="Vault", exact=True).click()
-    page.wait_for_function("document.querySelector('#vault-json').value.includes('Sample Candidate')")
+    page.wait_for_function("document.querySelector('#vault-json')?.value.includes('Sample Candidate')")
     page.get_by_role("button", name="Check").click()
     page.wait_for_selector("text=Valid. Nothing saved yet.")
     # settings toggle round-trips to the API

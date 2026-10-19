@@ -1,7 +1,6 @@
 """P5: Ashby, SmartRecruiters (shadow DOM), Workable, Workday (account +
 verification + multi-step + custom listboxes), generic LLM-guided adapter."""
 import json
-import os
 from pathlib import Path
 
 import httpx
@@ -16,7 +15,6 @@ pytestmark = pytest.mark.integration
 ROOT = Path(__file__).parents[2]
 VAULT = json.loads((ROOT / "examples/vault.example.json").read_text())
 JD = (ROOT / "examples/jd.example.txt").read_text()
-os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers")
 _RECIPE = None
 
 
