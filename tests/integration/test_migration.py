@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -8,12 +8,17 @@ pytestmark = pytest.mark.integration
 TABLES = {
     "users", "vaults", "sources", "companies", "jobs", "seen_jobs", "jd_signatures",
     "applied_ledger", "company_cooldown", "applications", "waiting_list",
-    "responses", "referral_contacts", "referral_requests", "outcomes_daily",
-    "form_answers", "credentials", "recipe_cache", "adapter_health", "mail_actions",
+    "responses", "outcomes_daily", "form_answers", "credentials", "recipe_cache",
+    "adapter_health", "mail_actions",
+    # 0002
+    "outreach_contacts", "referral_queue", "do_not_contact", "provider_usage",
+    "outreach_log", "company_stars", "training_examples",
 }
 RLS_TABLES = {"users", "vaults", "jobs", "seen_jobs", "applied_ledger", "company_cooldown",
-              "applications", "waiting_list", "responses", "referral_contacts",
-              "referral_requests", "form_answers", "credentials", "recipe_cache", "mail_actions"}
+              "applications", "waiting_list", "responses", "form_answers", "credentials",
+              "recipe_cache", "mail_actions", "outreach_contacts", "referral_queue",
+              "do_not_contact", "provider_usage", "outreach_log", "company_stars",
+              "training_examples"}
 
 
 def _parent_tables(c):
@@ -73,9 +78,33 @@ def test_downgrade_upgrade_roundtrip(fresh_db_url, alembic_cfg):
         with eng.connect() as c:
             assert _parent_tables(c) <= {"alembic_version"}
             assert not c.execute(text(
-                "SELECT count(*) FROM pg_type WHERE typname IN ('application_status','ats_type')")).scalar()
+                "SELECT count(*) FROM pg_type WHERE typname IN ('application_status','ats_type',"
+                "'contact_role','referral_queue_status','referral_status')")).scalar()
             assert not c.execute(text("SELECT count(*) FROM pg_proc WHERE proname LIKE 'jobbot%'")).scalar()
         command.upgrade(cfg(), "head")
         with eng.connect() as c:
             assert TABLES <= _parent_tables(c)
         eng.dispose()
+
+
+def test_partial_downgrade_restores_old_referral_tables(fresh_db_url, alembic_cfg):
+    from alembic import command
+    cfg, env = alembic_cfg
+    with env(fresh_db_url):
+        command.upgrade(cfg(), "head")
+        command.downgrade(cfg(), "0001")
+        eng = create_engine(fresh_db_url)
+        with eng.connect() as c:
+            names = _parent_tables(c)
+            assert {"referral_contacts", "referral_requests"} <= names
+            assert "referral_queue" not in names
+        command.upgrade(cfg(), "head")
+        with eng.connect() as c:
+            assert "referral_contacts" not in _parent_tables(c)
+        eng.dispose()
+
+
+def test_api_role_exists_and_is_granted(conn):
+    assert conn.execute(text("SELECT pg_has_role(current_user, 'jobbot_api', 'MEMBER')")).scalar()
+    assert conn.execute(text("SELECT has_table_privilege('jobbot_api', 'public.referral_queue', 'INSERT')")).scalar()
+    assert not conn.execute(text("SELECT has_table_privilege('jobbot_api', 'public.outcomes_daily', 'SELECT')")).scalar()

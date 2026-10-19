@@ -1,0 +1,319 @@
+{
+  "schema_version": 1,
+  "personal": {
+    "full_name": "Sample Candidate",
+    "email": "sample.candidate@example.com",
+    "phone": "+91 98765 43210",
+    "location": {
+      "city": "Delhi",
+      "country": "India"
+    },
+    "links": [
+      {
+        "label": "GitHub",
+        "url": "https://github.com/sample-candidate"
+      },
+      {
+        "label": "LinkedIn",
+        "url": "https://www.linkedin.com/in/sample-candidate"
+      }
+    ]
+  },
+  "education": [
+    {
+      "institution": "Example Institute of Technology",
+      "degree": "B.Tech",
+      "field_of_study": "Computer Science and Engineering",
+      "start": "2023-08",
+      "end": "2027-05",
+      "graduation_year": 2027,
+      "grade": "CGPA 8.4/10",
+      "coursework": [
+        "Operating Systems",
+        "DBMS",
+        "Computer Networks",
+        "DSA"
+      ]
+    }
+  ],
+  "experience": [
+    {
+      "id": "exp-acme-intern",
+      "company": "Acme Health Tech",
+      "title": "Software Engineering Intern",
+      "location": "Noida",
+      "employment_type": "internship",
+      "start": "2026-07",
+      "end": "2026-10",
+      "bullets": [
+        {
+          "id": "acme-1",
+          "text": "Built 6 REST endpoints in ASP.NET Core for a claims clearing-house service handling 40k requests/day"
+        },
+        {
+          "id": "acme-2",
+          "text": "Cut p95 latency of the claim-status API from 900 ms to 350 ms by adding Redis caching and query indexes"
+        },
+        {
+          "id": "acme-3",
+          "text": "Wrote 120 xUnit tests, raising coverage of the validation module from 45% to 82%"
+        }
+      ],
+      "tech": [
+        "C#",
+        "ASP.NET Core",
+        "SQL Server",
+        "Redis",
+        "xUnit"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "proj-job-bot",
+      "name": "Job Discovery and Apply Bot",
+      "repo": "https://github.com/sample-candidate/jobbot",
+      "start": "2026-10",
+      "tech": [
+        "Python",
+        "FastAPI",
+        "PostgreSQL",
+        "pgvector",
+        "Redis",
+        "Playwright",
+        "Docker"
+      ],
+      "tags": [
+        "backend",
+        "automation"
+      ],
+      "bullets": [
+        {
+          "id": "jb-1",
+          "text": "Designed a partitioned Postgres schema for 20 tables that holds a full workload under a 300 MB free-tier budget"
+        },
+        {
+          "id": "jb-2",
+          "text": "Built cross-portal dedupe with 64-bit fingerprints and SimHash, detecting reposts within a 60-day window"
+        },
+        {
+          "id": "jb-3",
+          "text": "Added row-level security and optimistic concurrency so multiple users edit isolated profiles safely"
+        },
+        {
+          "id": "jb-4",
+          "text": "Wrote 95 unit and integration tests run in Docker Compose against a throwaway database per session"
+        }
+      ]
+    },
+    {
+      "id": "proj-proctor",
+      "name": "Proctored Online Testing System",
+      "url": "https://proctor-demo.example.com",
+      "tech": [
+        "React",
+        "Node.js",
+        "Express",
+        "MongoDB",
+        "WebRTC"
+      ],
+      "tags": [
+        "full-stack"
+      ],
+      "bullets": [
+        {
+          "id": "pr-1",
+          "text": "Built browser-based exams with camera, microphone and fullscreen checks for up to 200 concurrent candidates"
+        },
+        {
+          "id": "pr-2",
+          "text": "Blocked copy-paste and tab switching, flagging 3 violation types for admin review"
+        },
+        {
+          "id": "pr-3",
+          "text": "Designed an admin dashboard to review sessions and mark pass/fail, cutting review time by 60%"
+        },
+        {
+          "id": "pr-4",
+          "text": "Deployed on free tiers with CI from GitHub Actions in under 5 minutes per release"
+        }
+      ]
+    },
+    {
+      "id": "proj-netsec",
+      "name": "Network Threat Detection Platform",
+      "tech": [
+        "Python",
+        "Scapy",
+        "scikit-learn",
+        "FastAPI",
+        "React",
+        "PostgreSQL"
+      ],
+      "tags": [
+        "security",
+        "ml",
+        "backend"
+      ],
+      "bullets": [
+        {
+          "id": "ns-1",
+          "text": "Captured and parsed live traffic with Scapy, extracting 25 flow features per connection"
+        },
+        {
+          "id": "ns-2",
+          "text": "Trained an Isolation Forest anomaly detector reaching 0.91 F1 on the CIC-IDS2017 dataset"
+        },
+        {
+          "id": "ns-3",
+          "text": "Streamed alerts to a React dashboard over WebSockets with under 2 s end-to-end delay"
+        },
+        {
+          "id": "ns-4",
+          "text": "Generated plain-English incident explanations with an LLM for each high-severity alert"
+        }
+      ]
+    },
+    {
+      "id": "proj-retail",
+      "name": "Retail Intelligence Platform",
+      "tech": [
+        "Python",
+        "PostgreSQL",
+        "dbt",
+        "Airflow",
+        "MLflow",
+        "Power BI"
+      ],
+      "tags": [
+        "data-engineering"
+      ],
+      "bullets": [
+        {
+          "id": "rt-1",
+          "text": "Modelled 100k orders from the Olist dataset into a star schema with 12 dbt models and tests"
+        },
+        {
+          "id": "rt-2",
+          "text": "Orchestrated daily ELT with Airflow DAGs and tracked 4 churn-model experiments in MLflow"
+        },
+        {
+          "id": "rt-3",
+          "text": "Published a Power BI dashboard covering revenue, delivery delays and repeat-purchase rate"
+        },
+        {
+          "id": "rt-4",
+          "text": "Reduced full pipeline runtime from 18 minutes to 6 minutes with incremental models"
+        }
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "category": "Languages",
+      "items": [
+        "Python",
+        "C#",
+        "JavaScript",
+        "TypeScript",
+        "SQL",
+        "Go"
+      ]
+    },
+    {
+      "category": "Frameworks",
+      "items": [
+        "FastAPI",
+        "ASP.NET Core",
+        "React",
+        "Node.js",
+        "Express"
+      ]
+    },
+    {
+      "category": "Data",
+      "items": [
+        "PostgreSQL",
+        "MongoDB",
+        "Redis",
+        "SQL Server",
+        "dbt",
+        "Airflow"
+      ]
+    },
+    {
+      "category": "Tools",
+      "items": [
+        "Docker",
+        "Git",
+        "GitHub Actions",
+        "Playwright",
+        "Linux",
+        "xUnit",
+        "WebRTC",
+        "Scapy"
+      ]
+    },
+    {
+      "category": "ML and Analytics",
+      "items": [
+        "scikit-learn",
+        "MLflow",
+        "Power BI",
+        "pgvector"
+      ]
+    }
+  ],
+  "extra_keywords": [
+    "REST APIs",
+    "System Design",
+    "Unit Testing",
+    "CI/CD"
+  ],
+  "certifications": [],
+  "achievements": [
+    {
+      "id": "ach-1",
+      "text": "Solved 400+ problems on LeetCode with a contest rating of 1750"
+    }
+  ],
+  "standard_answers": {
+    "expected_ctc_lpa": 12,
+    "notice_period_days": 0,
+    "earliest_start": "2027-06",
+    "willing_to_relocate": true,
+    "relocation_cities": [
+      "Bengaluru",
+      "Hyderabad",
+      "Pune",
+      "Gurugram",
+      "Noida"
+    ],
+    "work_authorization": "Indian citizen",
+    "requires_sponsorship": false
+  },
+  "expectations": {
+    "locations": [
+      "Delhi",
+      "Noida",
+      "Gurugram",
+      "Bengaluru",
+      "Hyderabad",
+      "Pune",
+      "Remote"
+    ],
+    "remote_types": [
+      "onsite",
+      "hybrid",
+      "remote"
+    ],
+    "role_types": [
+      "Software Development Engineer",
+      "Backend Engineer",
+      "Full Stack Engineer"
+    ],
+    "min_ctc_lpa": 6,
+    "experience_level": "fresher",
+    "blacklisted_companies": []
+  }
+}

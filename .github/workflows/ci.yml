@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: jobbot
+          POSTGRES_PASSWORD: jobbot
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U jobbot" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://jobbot:jobbot@localhost:5432/postgres
+      REDIS_URL: redis://localhost:6379/15
+      TECTONIC_VERSION: "0.15.0"
+      TYPST_VERSION: "0.13.1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: System packages and typesetters
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+          curl -fsSL "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${TECTONIC_VERSION}/tectonic-${TECTONIC_VERSION}-x86_64-unknown-linux-musl.tar.gz" | sudo tar xz -C /usr/local/bin tectonic
+          curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-x86_64-unknown-linux-musl.tar.xz" | sudo tar xJ --strip-components=1 -C /usr/local/bin typst-x86_64-unknown-linux-musl/typst
+          tectonic --version && typst --version
+      - name: Python dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          python -m playwright install --with-deps chromium
+      - name: Tests (blocking)
+        run: pytest -q -ra
+
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Ruff (blocking on real bugs only)
+        run: |
+          pip install ruff
+          ruff check --select F,E9,B --ignore B008,B904,B905,E731 app tests scripts migrations
+
+  security:
+    # Advisory: findings show in the log and in the Security tab, they do not fail the build.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bandit, pip-audit, Semgrep
+        continue-on-error: true
+        run: |
+          pip install bandit pip-audit semgrep
+          bandit -q -r app -ll || true
+          pip-audit -r requirements.txt || true
+          semgrep scan --config p/python --config p/secrets --error app || true
+      - name: Gitleaks (secret scan)
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Trivy (Dockerfile and dependencies)
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL

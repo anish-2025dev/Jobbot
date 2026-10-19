@@ -91,7 +91,7 @@ def simhash(text: str, shingle: int = 3) -> int:
     weights = [0] * 64
     shingles = {" ".join(words[i : i + shingle]) for i in range(len(words) - shingle + 1)}
     for sh in shingles:
-        hv = xxhash.xxh64_intdigest(sh)
+        hv = xxhash.xxh64_intdigest(sh.encode("utf-8"))
         for bit in range(64):
             weights[bit] += 1 if (hv >> bit) & 1 else -1
     v = sum(1 << b for b in range(64) if weights[b] > 0)
