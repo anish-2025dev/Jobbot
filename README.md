@@ -84,7 +84,7 @@ Useful commands: `python -m app.cli run <job>` runs one scheduler job now (`inge
 | Piece | Where | Notes |
 |---|---|---|
 | Postgres | Supabase free (500 MB) | Use the **direct/session** string (port 5432). pgvector is preinstalled; migration 0001 enables it. |
-| Workers, Redis, Chromium | One always-on VM (e.g. Oracle Cloud free ARM/AMD) or your own PC | `docker compose up -d` without the `db` service. |
+| Workers, Redis, Chromium | One always-on VM (Oracle Cloud free Ampere ARM recommended: up to 4 cores / 24 GB; the free AMD VM has 1 GB, enough for `APPLY_WORKERS=1`) or your own PC | `docker compose up -d` without the `db` service. The image builds on x86_64 and ARM64. |
 | Telegram | Bot API | Long polling, so no public URL is needed. |
 | Dashboard | Same VM | Put it behind HTTPS (Caddy or Cloudflare Tunnel) before inviting others, and set `PUBLIC_BASE_URL`. |
 
