@@ -18,7 +18,10 @@ def test_spec_constraints(s):
     assert s.waiting_list_max == 30 and s.waiting_list_ttl_hours == 24              # C8
     assert s.min_score == 0.60 and s.stretch_min == 0.50                            # C10
     assert s.positive_mail_min_days == 7                                            # C13
-    assert s.referral_hold_hours == 48
+    assert s.referral_hold_hours == 24                                              # C15
+    assert s.outreach_daily_jobs == 10 and s.outreach_daily_emails == 30            # C14
+    assert s.outreach_contacts_per_job == 3 and s.outreach_company_contacts_30d == 3
+    assert s.bounce_pause_rate == 0.03 and s.outreach_pause_days == 7               # section 13
 
 
 def test_buckets_ordered(s):
@@ -48,5 +51,5 @@ def test_env_override(monkeypatch):
 def test_required_secrets(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 - pydantic ValidationError
         Settings(_env_file=None)

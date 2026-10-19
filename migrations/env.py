@@ -2,10 +2,13 @@
 autogenerate target. DATABASE_URL must be a direct/session connection, not
 Supabase's transaction pooler (port 6543)."""
 import os
+import sys
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import create_engine, pool
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # migrations import app.util
 url = os.environ["DATABASE_URL"]
 
 

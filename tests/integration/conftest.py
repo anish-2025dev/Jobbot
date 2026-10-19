@@ -143,3 +143,80 @@ def fails(conn, match: str | None = None):
     sp.rollback()
     if match:
         assert match in str(exc.value).lower(), str(exc.value)
+
+
+API_KEY = "test-api-key"
+# Modules holding a reference to app.db objects; reloaded after app.db.
+API_MODULES = ["app.auth", "app.api.deps", "app.vault.api", "app.resume.service", "app.resume.api", "app.api.account", "app.api.dashboard", "app.api.onboarding", "app.api.webhooks"]
+
+
+@pytest.fixture
+def api(migrated_url, monkeypatch):
+    """FastAPI TestClient bound to the migrated database, X-API-Key preset."""
+    import importlib
+
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv("DATABASE_URL", migrated_url)
+    monkeypatch.setenv("ENCRYPTION_KEY", "test-only")
+    monkeypatch.setenv("ADMIN_API_KEY", API_KEY)
+    import app.config
+    app.config.get_settings.cache_clear()
+    import app.db
+    app.db.engine.dispose()
+    importlib.reload(app.db)
+    import importlib.util
+    for mod in API_MODULES:                      # stacked layers may not have every router yet
+        if importlib.util.find_spec(mod) is not None:
+            importlib.reload(importlib.import_module(mod))
+    import app.main
+    importlib.reload(app.main)
+    client = TestClient(app.main.app, headers={"X-API-Key": API_KEY})
+    yield client
+    client.close()
+    app.db.engine.dispose()
+    app.config.get_settings.cache_clear()
+
+
+@pytest.fixture(scope="module")
+def module_db():
+    """A freshly migrated database for one test module, with app.db pointed
+    at it. For tests that commit through app.db (runner, janitor, workers)."""
+    import importlib
+
+    from alembic import command
+    url = _create_db()
+    with _database_url_env(url):
+        command.upgrade(_cfg(), "head")
+    old = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = url
+    import app.config
+    import app.db
+    app.config.get_settings.cache_clear()
+    app.db.engine.dispose()
+    importlib.reload(app.db)
+    app.db.api_role_available.cache_clear()
+    eng = create_engine(url, connect_args={"options": "-c timezone=UTC"})
+    yield eng
+    eng.dispose()
+    app.db.engine.dispose()
+    if old is None:
+        os.environ.pop("DATABASE_URL", None)
+    else:
+        os.environ["DATABASE_URL"] = old
+    app.config.get_settings.cache_clear()
+    importlib.reload(app.db)
+    _drop_db(url)
+
+
+def seed_user(eng, vault: dict | None = None, settings: dict | None = None, email: str | None = None):
+    """User + vault through a committed transaction; returns user id."""
+    import json as _json
+    from pathlib import Path as _P
+    vault = vault or _json.loads((_P(__file__).parents[2] / "examples/vault.example.json").read_text())
+    with eng.begin() as c:
+        uid = c.execute(text("INSERT INTO users (email, settings) VALUES (:e, CAST(:s AS jsonb)) RETURNING id"),
+                        {"e": email or f"u{uuid.uuid4().hex[:8]}@test.dev",
+                         "s": _json.dumps(settings or {})}).scalar_one()
+        c.execute(text("INSERT INTO vaults (user_id, data) VALUES (:u, CAST(:d AS jsonb))"),
+                  {"u": uid, "d": _json.dumps(vault)})
+    return uid

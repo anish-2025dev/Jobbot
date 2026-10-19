@@ -1,0 +1,20 @@
+About the role
+Northwind Payments is hiring a Software Development Engineer I to join the Merchant Platform team in Bengaluru (hybrid). You will design and build backend services in Python and Go that process payments for thousands of merchants.
+
+What you'll do
+- Build and own REST APIs and services with FastAPI and PostgreSQL
+- Improve latency and reliability using Redis caching, query optimisation and good observability
+- Write unit and integration tests and ship through CI/CD pipelines on Docker
+- Work with product and infrastructure teams on system design reviews
+
+Requirements
+- B.Tech/B.E. in Computer Science, graduating in 2026 or 2027
+- Strong fundamentals in data structures and algorithms
+- Hands-on experience with Python and SQL
+- Familiarity with Docker and Git
+
+Nice to have
+- Experience with Kafka or other message queues
+- Exposure to Kubernetes and AWS
+
+We offer competitive pay, flexible hybrid work, health insurance and a learning budget.

@@ -1,148 +1,224 @@
 # JobBot
 
-Multi-user job discovery and auto-apply bot on free tiers. The spec is the
-source of truth. This README tracks what each phase delivers.
+A multi-user job discovery and auto-apply bot that runs on free tiers. It finds
+jobs that match your skills and ranks them by chance of success, then salary. For
+each job it builds a truthful one-page resume and applies wherever that's safe. For
+your best jobs it first asks people at the company for a referral. Your own
+time goes only to the jobs that need a human and to the replies that worked.
 
-## Status: P0, step 1 of 3 (skeleton + schema)
+Everything in the spec (P0–P6) is implemented and covered by 476 tests against a
+real Postgres 16 + pgvector, Redis and headless Chromium.
 
-| Step | Contents | State |
-|---|---|---|
-| 1 | Repo layout, Docker Compose, Alembic migration for all section-4 tables, hashing utils | **this drop** |
-| 2 | Vault Pydantic schema + vault editor API | next |
-| 3 | Resume engine (recipe, cache, truth validator, LaTeX, Tectonic, ATS loop, DOCX) | after |
-
-P0 is done when a vault JSON + pasted JD produces a one-page, ATS-clean PDF.
-
-## Layout
-
-```
-jobbot/
-├── app/
-│   ├── config.py          # every spec tunable (caps, retention, thresholds)
-│   ├── db.py              # engine, worker_session, user_session (RLS scope)
-│   ├── main.py            # FastAPI; /health reports DB size vs budget
-│   ├── util/hashing.py    # canonical_hash, fingerprint, company_key, simhash
-│   ├── vault/             # step 2
-│   └── resume/            # step 3
-├── migrations/versions/0001_initial_schema.py
-├── scripts/size_report.sql  # real bytes/row per table
-├── tests/test_hashing.py
-├── docker-compose.yml   Dockerfile   alembic.ini   .env.example
-```
-
-Later phases add `app/ingest`, `app/scoring`, `app/apply`, `app/mail`,
-`app/janitor` and `app/notify`.
+- [Quickstart](#quickstart)
+- [First run](#first-run)
+- [Deploying on free tiers](#deploying-on-free-tiers)
+- [How it works](#how-it-works)
+- [Hard constraints and where they're enforced](#hard-constraints-and-where-theyre-enforced)
+- [Storage: measured bytes per row](#storage-measured-bytes-per-row)
+- [Tests](#tests)
+- [Decisions that differ from the spec](#decisions-that-differ-from-the-spec)
+- [Known limits](#known-limits)
 
 ## Quickstart
 
-```bash
-cp .env.example .env              # fill ENCRYPTION_KEY
-docker compose up -d db redis
-docker compose run --rm api alembic upgrade head
-docker compose run --rm api pytest -q
-docker compose up -d api && curl localhost:8000/health
-```
-
-To use Supabase, set `DATABASE_URL` to the direct/session string (port 5432)
-and run `alembic upgrade head` from your machine. pgvector is preinstalled
-on Supabase, and the migration enables it.
-
-### Tests
+Needs Docker with Compose.
 
 ```bash
-docker compose up -d db
-docker compose --profile test run --rm test      # unit + integration
-pytest tests/unit -q                             # unit only, no DB needed
+cp .env.example .env
+# fill ENCRYPTION_KEY, SESSION_SECRET and ADMIN_API_KEY (commands are in the file)
+docker compose up -d --build
 ```
 
-Integration tests create a throwaway database per session (named by
-`TEST_DATABASE_URL`, whose user needs CREATEDB and CREATEROLE). They simulate
-Supabase's `anon`/`authenticated` default grants, and roll back after every
-test.
+This starts Postgres + pgvector, Redis, the migrations (one-shot), the API and
+dashboard, the scheduler and one apply worker. Open **http://localhost:8000**.
 
-| Suite | Covers |
+Telegram (once `TELEGRAM_BOT_TOKEN` is set): `docker compose --profile telegram up -d`.
+
+Without Docker (Python 3.12, Postgres 16 with pgvector, Redis):
+
+```bash
+pip install -r requirements.txt && python -m playwright install chromium
+alembic upgrade head
+python -m app.cli api            # dashboard + API on :8000
+python -m app.cli scheduler      # ingestion, mail, outreach, janitor
+python -m app.cli apply-worker   # browser workers
+python -m app.cli telegram       # optional
+```
+
+Resumes need one of: Tectonic (used in Docker), XeLaTeX, pdfLaTeX or Typst.
+
+## First run
+
+1. **Create your account** in the dashboard. The first account becomes the admin.
+2. **Fill your vault** (Vault tab). Either import your existing resume (PDF/DOCX), which
+   gives you a draft to review, or start from the example. Use real numbers in your
+   bullets: a metric that isn't in the vault can never appear on a resume.
+3. **Connect mail** (Settings). The bot needs it to confirm applications, catch replies,
+   clean up and send referral emails.
+   - *Gmail (recommended):* in Google Cloud, create a project, enable the Gmail API, and
+     create an OAuth client of type *Web application* with the redirect URI
+     `{PUBLIC_BASE_URL}/oauth/google/callback`. On the consent screen add the scopes
+     `gmail.modify` and `gmail.send`, then **publish the app "In production"**. Unverified
+     is fine for personal use, and it stops refresh tokens from expiring after 7 days.
+     Paste the client ID and secret, then click *Connect Gmail*.
+   - *IMAP fallback:* your address plus a Google app password.
+4. **Link Telegram** (Settings, then *Get link code*) for instant alerts and one-tap approvals.
+5. **Add companies to poll.** The registry grows by itself whenever an aggregator listing
+   links to a Greenhouse, Lever, Ashby, SmartRecruiters or Workday board. To seed it:
+   ```bash
+   docker compose exec api python -m app.cli seed-companies companies.csv   # name,careers_url
+   ```
+   Optionally add JSearch and Adzuna keys in `.env` for Tier B.
+6. **Use the ranked list for a week** (the lean-first mode). Auto-apply is off by default:
+   open *Ranked jobs*, download the tailored resume, apply yourself, then press *I applied*.
+   The same gate (C4–C6) and bookkeeping apply as for the bot.
+7. **Turn on auto-apply**, and optionally **referral outreach** after adding Hunter, Apollo
+   or Snov.io keys. Outreach drafts need your approval for the first 7 days.
+
+Useful commands: `python -m app.cli run <job>` runs one scheduler job now (`ingest`, `mail`,
+`outreach`, `hourly`, `digest`, `nightly`, `weekly`). `python -m app.cli resume --vault v.json
+--jd jd.txt --title "SDE I" --company Acme --out r.pdf --docx` builds a resume with no database.
+
+## Deploying on free tiers
+
+| Piece | Where | Notes |
+|---|---|---|
+| Postgres | Supabase free (500 MB) | Use the **direct/session** string (port 5432). pgvector is preinstalled; migration 0001 enables it. |
+| Workers, Redis, Chromium | One always-on VM (e.g. Oracle Cloud free ARM/AMD) or your own PC | `docker compose up -d` without the `db` service. |
+| Telegram | Bot API | Long polling, so no public URL is needed. |
+| Dashboard | Same VM | Put it behind HTTPS (Caddy or Cloudflare Tunnel) before inviting others, and set `PUBLIC_BASE_URL`. |
+
+On Supabase, run `alembic upgrade head` once from your machine, then remove `db`
+and `migrate` from the compose file on the VM.
+
+## How it works
+
+```
+ Tier A ATS APIs ─┐                  ┌─ dedupe: canonical id + fingerprint + SimHash repost check
+ Tier B JSearch,  ├─ fetch ─ normalize ─ hard filters ─ score (6 weighted parts) ─ jobs (7 days)
+ Adzuna, HN       │   (shared)            (per user)                                 │
+ Tier C alerts ───┤                                                                  ▼
+ Tier D JSON-LD ──┘                                     ranked list ── router ─┬─ referral queue (email 2–3 people, hold 24 h)
+                                                                               ├─ apply queue ─ gate ─ adapter ─ submit
+                                                                               └─ waiting list + Ready Pack (you, ~1 min)
+ Gmail every 15 min ─ match to own activity ─ classify ─ P0–P4 actions (undo 30 d) ─ Telegram alerts
+```
+
+| Area | Code |
 |---|---|
-| unit/test_hashing | company keys, req-code stripping (not years), city aliases, cross-portal fingerprints, canonical IDs, SimHash repost detection |
-| unit/test_budget | C1 thresholds (210 MB tight, 270 MB pause) |
-| unit/test_config | every default matches C1, C5–C8, C10, C13, retention; env overrides |
-| unit/test_migration_static | all section-4 tables, one statement per execute, no `%`/bind colons, RLS on every user table, C2/C3 shape, downgrade completeness |
-| integration/test_migration | tables, pgvector, seeded sources, partitions, RLS flags, committed migration, downgrade→upgrade round trip |
-| integration/test_partitions | routing, missing-partition failure, idempotent ensure, drop + row removal, SimHash Hamming SQL |
-| integration/test_constraints | C4 ledger, C5 cooldown CHECKs, C3 summary cap, C7 eviction keeps cap, C8 uniqueness/24h, cascades, halfvec(256), rank order |
-| integration/test_security | RLS read/write isolation, anon lockout incl. future partitions, functions not PUBLIC |
-| integration/test_health_api | /health ok and pause states |
+| Vault (single source of resume facts) | `app/vault/` |
+| Resume engine: selection, LLM tailoring, truth validator, LaTeX/Typst, ATS check, DOCX | `app/resume/` |
+| Fetchers (Greenhouse, Lever, Ashby, SmartRecruiters, Workday, JSearch, Adzuna, HN, JSON-LD, LLM fallback) | `app/ingest/sources/` |
+| Normalize, score, registry + eviction, pipeline | `app/ingest/` |
+| Gate, filler, adapters (Greenhouse, Lever, Ashby, SmartRecruiters, Workable, Workday, generic), waiting list | `app/apply/` |
+| Mail: Gmail/IMAP, matching, classification, cleanup, OTP, Tier C parsing | `app/mail/` |
+| Referral outreach: providers, contact choice, compose, schedule, queue | `app/outreach/` |
+| Telegram, digest | `app/notify/` |
+| Auth, dashboard API, onboarding, webhooks | `app/auth.py`, `app/api/` |
+| Dashboard UI (Preact + htm, no build step) | `app/web/` |
+| Scheduler, CLI, janitor, weight tuning | `app/scheduler.py`, `app/cli.py`, `app/janitor.py`, `app/tuning.py` |
 
-### Verify the schema by hand
+An LLM is optional everywhere. With `LLM_PROVIDER=none` you get a deterministic
+resume selection, template cover letters and emails, and rule-based mail
+classification. With an LLM, its output goes through the same truth checks.
+
+## Hard constraints and where they're enforced
+
+| | Rule | Enforcement |
+|---|---|---|
+| C1 | 300 MB budget | Hourly size check: 70% shortens jobs to 3 days, 90% pauses ingestion and alerts admins (`janitor.py`, `ingest/runner.py`) |
+| C2 | No files in DB | Recipes only; PDFs are rendered on demand in temp dirs that are deleted; screenshots are skipped |
+| C3 | No full JDs | JD text lives in memory during scoring; the stored summary is capped at 600 chars by a CHECK constraint |
+| C4 | One application per opening, forever | `applied_ledger` (canonical id + fingerprint), re-checked under an advisory lock in `apply/gate.py`. A submit with no confirmation keeps the claim, so an application is never sent twice. |
+| C5 | 3 per company per 30 days | `company_cooldown` holds the last ≤3 timestamps plus referral reservations; a DB CHECK enforces `applied + reserved ≤ 3` |
+| C6 | 3-hour gap | Gate requeues with `not_before = last + 3 h`; the waiting list shows "ready at" |
+| C7 | 1000-company registry | Decayed score `S·e^(−Δt/30d)+1`; protected companies are never evicted; eviction never touches `company_cooldown` |
+| C8 | Waiting list 30 / 24 h | Rank-based displacement under a per-user lock; pin adds 24 h; the referral queue is separate |
+| C9 | Sources vs companies | Rate limits keyed by source/domain; caps keyed by `company_key` (legal suffixes and country subsidiaries folded) |
+| C10 | Quality gate | Auto-apply only at score ≥ MIN_SCORE (per-user override); Stretch jobs appear in the list and digest only |
+| C11 | Truthful resumes | `resume/validator.py`: a rephrased bullet may only use numbers from its own source bullet, and only skills from that bullet or its project's tech; cover letters, answers and emails lose any untraceable sentence |
+| C12 | Platform safety | LinkedIn, Naukri, Indeed etc. are never automated (waiting list only); CAPTCHAs go to Assisted mode; no evasion |
+| C13 | Mail priority | Offers are never auto-trashed; P1/P2 kept ≥ 7 days and until done; only mail matched to the bot's own activity is touched |
+| C14 | Outreach caps | 10 jobs/day, 3 contacts/job, 30 emails/day, 90-day per-person cooldown, 3 contacts/company/30 days, hashed do-not-contact list; re-checked right before each send |
+| C15 | 24 h hold | `apply_at = last send + 24 h`; a referral before then applies immediately via the link or referrer field; a late referral triggers a ready-to-send reply |
+
+Section 13 extras: the bounce rate (>3%) or a spam complaint pauses outreach for 7 days.
+Secrets are AES-GCM encrypted, bound to user and purpose. API requests run under a
+non-owner Postgres role with row-level security. The SMS webhook needs a per-user token.
+
+## Storage: measured bytes per row
+
+From `python -m scripts.simulate --companies 1000 --days 7`: 1000 polled companies,
+about 11,700 postings a day with 15% daily churn, and 1000 applications a day
+filled at spec volume. Sizes include indexes. **Total after 7 days: 43 MB (14%
+of budget).**
+
+| Table | Rows after 7 days | Bytes/row (measured) | Retention |
+|---|---|---|---|
+| jobs | 10,543 | 1,148 | 7 days (3 when tight), daily partitions |
+| applications | 7,000 | 1,504 (recipe kept 7 days) | rejected 7 days, no reply 45 days |
+| seen_jobs | 19,027 | 212 | 7 days, daily partitions |
+| jd_signatures | 17,623 | 146 | 60 days, daily partitions |
+| applied_ledger | 7,000 | 190 | ≥ 90 days, then only once the posting is gone |
+| company_cooldown | 7,000 | 146 | 30 days after last application |
+| mail_actions | 2,338 | 185 | 30 days |
+| companies | 1,000 | ~500 heap (2 KB incl. fixed index overhead at this size) | eviction at MAX_COMPANIES |
+
+Estimates for tables the simulation doesn't fill at volume: `waiting_list` ~10 KB (30 per user),
+`responses` 1–2 KB, `outreach_contacts` ~360 B, `referral_queue` ~600 B + 400 B per contact,
+`recipe_cache` ~3.6 KB, `training_examples` ~70 B, `do_not_contact` ~80 B, `provider_usage` ~70 B.
+Linear extrapolation to the 90-day ledger and 45-day applications gives roughly
+110–130 MB peak at 1000 applications a day.
+
+Check a live database with `psql "$DATABASE_URL" -f scripts/size_report.sql`.
+
+## Tests
 
 ```bash
-psql "postgresql://jobbot:jobbot@localhost:5432/jobbot" <<'SQL'
-\dt
-SELECT jobbot_ensure_daily_partitions('jobs', current_date, current_date + 10);  -- 3 new
-SELECT jobbot_drop_daily_partitions('jobs', current_date);                       -- 1 dropped
-SQL
-psql "postgresql://jobbot:jobbot@localhost:5432/jobbot" -f scripts/size_report.sql
+docker compose --profile test run --rm test
+# or locally:
+TEST_DATABASE_URL=postgresql+psycopg://user@localhost:5432/postgres REDIS_URL=redis://localhost:6379/15 pytest -q
 ```
 
-## Data model: bytes per row
+Integration tests create a throwaway database per module (the user needs CREATEDB and
+CREATEROLE). Without `TEST_DATABASE_URL`, only unit tests run. What the suites prove:
 
-Each estimate is heap tuple (24 B header + data) plus index entries. The P1
-simulated-week test will replace these with measured values from
-`size_report.sql`.
+- **P0:** a vault plus a JD gives a one-page ATS-clean PDF on every installed engine. The trim loop converges. LaTeX injection is inert.
+- **P1:** a simulated week with ranked jobs stays under budget. Dedupe works across portals and reposts.
+- **P2:** alerts arrive, rejections and low-value mail clean themselves up, positives stay 7+ days, unmatched mail is untouched, and undo works.
+- **P3:** end-to-end auto-apply in Chromium on local Greenhouse and Lever forms, with C4/C5/C6, CAPTCHA, unknown questions, DOCX fallback and adapter pausing.
+- **P4:** the full outreach cycle (contacts, approval, send at 9–11 am, reply, apply at T+24h), plus early and late referrals, caps, exhausted providers and the bounce guard.
+- **P5:** Ashby, SmartRecruiters (shadow DOM), Workable, Workday (account creation, email verification, multi-step, custom listboxes) and the generic adapter.
+- **P6:** signup/login, token revocation, cross-user isolation enforced by RLS, the dashboard API and UI in a browser, onboarding import, and weight tuning.
 
-| Table | Est. bytes/row | Rows at 1000 apps/day | Peak MB |
-|---|---|---|---|
-| jobs (7d, daily partitions) | ~1,300 | 3k/day × 7 = 21k | 27 |
-| seen_jobs (7d, daily partitions) | ~145 | 20k/day × 7 = 140k | 20 |
-| jd_signatures (60d, daily partitions) | ~80 | 3k/day × 60 = 180k | 14 |
-| applied_ledger | ~170 | 1k/day, see below | 15 at 90d |
-| company_cooldown | ~155 | ≤ distinct companies in 30d | 5 |
-| applications (45d) | ~650 avg (recipe kept 7d) | 45k | 30 |
-| waiting_list | ~10 KB | 30/user | 0.3 |
-| responses | ~1–2 KB | hundreds | <1 |
-| referral_contacts / requests | ~200 / ~300 | hundreds | <1 |
-| outcomes_daily | ~70 | ~50/day | 1.3/yr |
-| form_answers / credentials | ~300 / ~250 | hundreds | <1 |
-| recipe_cache (7d) | ~3,600 | ~500/day × 7 | 13 |
-| adapter_health / sources | ~70 / ~200 | tens | 0 |
-| mail_actions (30d) | ~160 | 3k/day × 30 | 14 |
-| companies | ~450 | 1,000 | 0.5 |
-| users + vaults | ~20 KB compressed | per user | <1 |
-| **Total** | | | **~145 MB** (48% of budget) |
+## Decisions that differ from the spec
 
-This assumes about 3× as many ranked jobs as applications and roughly 20k
-processed jobs/day for one user.
+1. **Referral outreach replaces the older manual-ask referral tables** (migration 0002), following
+   the updated spec. `outreach_log` and `company_stars` were added: the 30/day email cap and the bounce
+   rate need a send log, and the referral flag needs per-user starred companies.
+2. **Repost detection uses a 64-bit SimHash** instead of a stored JD embedding: about 146 B/row
+   instead of ~600 B over 60 days. Signatures are global but keyed by canonical id, so two users can
+   share an opening without it looking like a repost.
+3. **The ledger is kept past 90 days while the posting is still open**, so C4 ("forever") holds without unbounded growth.
+4. **Lean mode builds resumes from the stored summary and skills**, because the full JD was discarded (C3).
+   Jobs routed for auto-apply get their recipe built during ingestion, while the full JD is still in memory.
+5. **Weight tuning uses `training_examples`** (per user, 180 days, ~70 B/row), because `outcomes_daily` is
+   anonymous by design. Learned weights are shrunk toward the defaults until about 60 outcomes.
+6. **The dashboard uses Preact + htm** (React-compatible API, no build step) instead of React, so the VM needs no Node toolchain.
+7. **Screenshots are skipped** (C2 allows "or skipped").
+8. **Embeddings default to deterministic feature hashing** (no model download, reproducible cache hits).
+   Set `EMBEDDING_PROVIDER=ollama` for semantic embeddings.
 
-## Deviations from the spec
+## Known limits
 
-1. **jobs and seen_jobs are per-user.** Scores and thresholds depend on the
-   user's vault, so a job row is really "this job for this user". Fetching
-   stays shared; scoring writes per-user rows. This also makes RLS trivial.
-2. **Repost detection uses SimHash instead of a stored embedding.** Keeping a
-   256-dim embedding for 60 days costs about 600 B/row, which is about 108 MB
-   at this volume. A 64-bit SimHash costs about 80 B/row. Reposts reuse the
-   JD text almost verbatim, so `hamming <= 6` catches them. This corrects the
-   36 MB I estimated earlier, which assumed far fewer processed jobs.
-3. **Ledger retention.** C4 says "forever", but the table says 90 days. The
-   resolution is to keep every row for at least 90 days. After that, the
-   janitor (P1) deletes a row only once the ATS confirms the posting is
-   closed, because a closed opening can't be applied to again. This satisfies
-   C4 without unbounded growth (permanent rows would add ~60 MB/year at
-   1000/day).
-4. **company_cooldown stores the last ≤3 application timestamps** instead of
-   a counter. That gives an exact rolling 30-day window for C5, at about
-   155 B/row instead of 40. A CHECK constraint enforces
-   `applied + reserved <= 3` at the database level.
-5. **The resume recipe lives on the application row for 7 days.** After
-   that it's kept only if the application turned positive, so the submitted
-   resume can be re-rendered for interview prep.
-6. **Supabase hardening.** The migration revokes all `public` privileges
-   from `anon` and `authenticated`. PostgREST exposes that schema, and this
-   app never uses it.
-
-## Security notes
-
-- RLS policies exist on every user table and scope rows via `app.user_id`.
-  Workers connect as the table owner and bypass RLS. The user-facing API will
-  connect as a non-owner role in P5, which is when multi-user auth lands.
-- No DEFAULT partitions. Ingestion calls `jobbot_ensure_daily_partitions` for
-  today before inserting, and the nightly janitor creates 7 days ahead.
+- **Live third-party APIs were not reachable from the build environment.** Every ATS board,
+  JSearch, Adzuna, Gmail, Telegram, Apollo, Hunter, Snov.io and the LLM providers were tested
+  against fixtures built from their documented formats. Watch the first live run with
+  `python -m app.cli run ingest` and `run mail`; a field name may differ.
+- **Real ATS forms vary by company** (custom questions, multi-page Greenhouse variants, Workday tenant
+  differences). Anything the filler can't do confidently goes to Assisted mode instead of guessing.
+  Adapter health pauses an adapter that starts failing.
+- **Email-finder free tiers change often.** Set a monthly credit limit per provider in Settings. When
+  every provider is out of credits, outreach skips straight to applying.
+- **Tectonic downloads its TeX bundle once, at image build.** If that build step fails, set
+  `RESUME_ENGINE=typst`; the Typst template is tested too.
