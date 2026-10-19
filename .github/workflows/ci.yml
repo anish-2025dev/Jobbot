@@ -65,8 +65,8 @@ jobs:
           python-version: "3.12"
       - name: Ruff (blocking on real bugs only)
         run: |
-          pip install ruff
-          ruff check --select F,E9,B --ignore B008,B904,B905,E731 app tests scripts migrations
+          pip install ruff==0.16.8
+          ruff check --select F,E9,B --ignore B008,B904,B905,E731 .
 
   security:
     # Advisory: findings show in the log and in the Security tab, they do not fail the build.
@@ -95,7 +95,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Trivy (Dockerfile and dependencies)
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scanners: vuln,misconfig,secret
