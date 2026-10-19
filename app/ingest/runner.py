@@ -12,6 +12,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from sqlalchemy import text
@@ -115,6 +116,9 @@ def poll_registry(f: Fetcher, profiles: list[UserProfile], result: RoundResult, 
             return c, "notfound", [], str(e)
         except SourceError as e:
             return c, "error", [], str(e)
+        except Exception as e:      # malformed payload (wrong JSON shape, missing key): this company only
+            log.warning("poll failed for %s (%s): %r", c.get("name"), c.get("ats_type"), e)
+            return c, "malformed", [], f"{type(e).__name__}: {e}"
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for fut in as_completed([pool.submit(one, c) for c in due]):
@@ -130,6 +134,11 @@ def poll_registry(f: Fetcher, profiles: list[UserProfile], result: RoundResult, 
                 per_source.setdefault(src, []).append(True)
             elif status == "notfound":
                 registry.mark_slug_broken(s, c["id"])
+            elif status == "malformed":
+                # The board answered but its payload didn't parse: wait the normal interval instead of
+                # retrying every round, and don't count it against the whole source's health.
+                registry.mark_polled(s, c["id"])            # keeps open_matching_jobs as it was
+                result.errors.append(f"{c['name']}: {err}")
             else:
                 per_source.setdefault(src, []).append(False)
                 result.errors.append(f"{c['name']}: {err}")
@@ -226,13 +235,19 @@ def prefilter_seen(raws: list[RawJob], profiles: list[UserProfile]) -> list[RawJ
     return [r for r, c in zip(raws, canon) if c not in seen_by_all]
 
 
+def _is_http(url: str | None) -> bool:
+    return bool(url) and urlsplit(url.strip()).scheme.lower() in ("http", "https")
+
+
 def normalize_all(raws: list[RawJob], profiles: list[UserProfile], today: datetime) -> list[NormalizedJob]:
     terms = tuple(sorted(set().union(*(p.terms for p in profiles)))) if profiles else ()
     seen: set[int] = set()
     out = []
     for r in raws:
-        if not r.title or not r.company or not r.url:
-            continue
+        if not r.title or not r.company or not _is_http(r.url):
+            continue                # also drops javascript:/data: links a page could smuggle in
+        if r.apply_url and not _is_http(r.apply_url):
+            r.apply_url = None
         try:
             n = normalize(r, today=today, vault_terms=terms)
         except Exception as e:      # one malformed posting never kills a round

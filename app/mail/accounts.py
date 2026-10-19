@@ -44,7 +44,8 @@ def mail_client(s: Session, user_id: UUID, transport=None):
         user, sec, meta = i
         return ImapClient(username=user, password=sec["password"],
                           imap_host=meta.get("imap_host", "imap.gmail.com"),
-                          smtp_host=meta.get("smtp_host", "smtp.gmail.com"))
+                          smtp_host=meta.get("smtp_host", "smtp.gmail.com"),
+                          trash_folder=meta.get("trash_folder") or None)
     return None
 
 

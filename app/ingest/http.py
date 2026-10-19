@@ -60,10 +60,18 @@ class Fetcher:
         raise SourceError(f"{source}: failed after {self.max_retries} attempts: {last}")
 
     def get_json(self, source: str, url: str, **kw):
-        return self.request(source, "GET", url, **kw).json()
+        return _decode(source, url, self.request(source, "GET", url, **kw))
 
     def post_json(self, source: str, url: str, body: dict, **kw):
-        return self.request(source, "POST", url, json=body, **kw).json()
+        return _decode(source, url, self.request(source, "POST", url, json=body, **kw))
+
+
+def _decode(source: str, url: str, r: httpx.Response):
+    """A 200 with an HTML body (bot challenge, maintenance page) is a source error, not a crash."""
+    try:
+        return r.json()
+    except ValueError as e:
+        raise SourceError(f"{source}: response from {url} is not JSON") from e
 
 
 def make_fetcher(transport: httpx.BaseTransport | None = None, limiter: RateLimiter | None = None,

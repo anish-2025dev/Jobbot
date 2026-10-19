@@ -106,7 +106,7 @@ WD_STEPS = {
         <label for="ln">Last Name *</label><input id="ln" data-automation-id="legalNameSection_lastName" name="last" required>
         <label for="ph">Phone Number *</label><input id="ph" data-automation-id="phone-number" name="phone" required>
         <label for="ci">City *</label><input id="ci" data-automation-id="addressSection_city" name="city" required>
-        {listbox("How Did You Hear About Us?", "source", ["Company Website", "LinkedIn", "Employee Referral"])}"""),
+        {listbox("How Did You Hear About Us?", "source", ["Company Website (Careers Page)", "Company Website", "LinkedIn", "Employee Referral"])}"""),
     2: ("My Experience", lambda email: """
         <label for="cv">Resume/CV *</label><input id="cv" type="file" data-automation-id="file-upload-input-ref" name="resume" required>
         <label for="li">LinkedIn</label><input id="li" name="linkedin">"""),

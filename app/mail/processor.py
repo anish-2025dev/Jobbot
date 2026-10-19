@@ -215,8 +215,10 @@ def process_message(client, s: Session, ctx: UserMailContext, msg: Message, rep:
     star_label(client, s, uid, msg.id, p, label)
     rep.starred += 1
     # A colleague's reply in an outreach thread is not an employer response;
-    # the outreach hook owns those state changes.
-    if m.application_id and m.kind == "application" and c.cls in POSITIVE | {"unclear"}:
+    # the outreach hook owns those state changes. Only a real positive class moves the
+    # application: "unclear" (newsletters, soft rejections, low-confidence labels) is kept
+    # and starred above but must not mark the application positive or feed the tuning data.
+    if m.application_id and m.kind == "application" and c.cls in POSITIVE:
         s.execute(text("""UPDATE applications SET status = 'positive', last_status_at = now(),
                           gmail_thread_id = COALESCE(gmail_thread_id, :t) WHERE id = :a AND user_id = :u"""),
                   {"a": m.application_id, "u": uid, "t": msg.thread_id})

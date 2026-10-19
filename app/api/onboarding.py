@@ -4,6 +4,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 from app import db
 from app.auth import principal
@@ -21,11 +22,17 @@ async def onboarding_import(user_id: UUID, file: UploadFile | None = File(defaul
     review; nothing is saved until you PUT it to /users/{id}/vault."""
     if file is None and not text:
         raise HTTPException(422, "send a file or text")
+    data = None
     if file is not None:
         data = await file.read(MAX_UPLOAD + 1)
         if len(data) > MAX_UPLOAD:
             raise HTTPException(413, "file too large (5 MB max)")
-        name = (file.filename or "").lower()
+    # Parsing and the LLM call block (sync httpx, retries): run them off the event loop.
+    return await run_in_threadpool(_import, data, (file.filename or "").lower() if file else "", text)
+
+
+def _import(data: bytes | None, name: str, text: str | None) -> dict:
+    if data is not None:
         if name.endswith(".pdf") or data[:4] == b"%PDF":
             from app.resume.ats import pdf_text
             text = pdf_text(data)

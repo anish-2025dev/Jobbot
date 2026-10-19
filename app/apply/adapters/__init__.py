@@ -1,5 +1,6 @@
 """Adapter registry. Build order (section 8): Greenhouse, Lever (P3), then
-Ashby, SmartRecruiters, Workable, Workday and the generic LLM adapter (P5)."""
+Ashby, SmartRecruiters, Workable and Workday (P5). The generic LLM adapter is built on demand
+by the runner, only when GENERIC_ADAPTER_ENABLED is on."""
 from __future__ import annotations
 
 from app.apply.adapters.base import Adapter

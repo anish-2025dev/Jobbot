@@ -53,7 +53,8 @@ def test_greenhouse(uni):
     jobs = greenhouse.fetch(fetcher(uni), "acme", "Acme")
     assert len(jobs) == 3
     j = jobs[0]
-    assert j.ats == "greenhouse" and j.company == "Acme Corp" and j.req_id == c.jobs[0].req
+    # identity is the posting id (what detect() reads from aggregator URLs), not the requisition id
+    assert j.ats == "greenhouse" and j.company == "Acme Corp" and j.req_id == str(int(c.jobs[0].id))
     assert j.url == f"https://boards.greenhouse.io/acme/jobs/{c.jobs[0].id}"
     assert "&lt;" in j.description or "<p>" in j.description
     assert j.posted_at is not None
@@ -85,7 +86,8 @@ def test_smartrecruiters_paginates_and_filters_before_detail(uni):
     detail_calls = [r for r in uni.requests if not r.url.path.endswith("/postings")]
     assert len(jobs) == len([j for j in c.jobs if "Senior" not in j.title])
     assert len(detail_calls) == len(jobs)           # no detail calls for filtered titles
-    assert jobs[0].req_id.startswith("R")
+    kept = [j for j in c.jobs if "Senior" not in j.title]
+    assert {j.req_id for j in jobs} == {str(j.id) for j in kept}    # posting id, not refNumber
 
 
 def test_workday(uni):

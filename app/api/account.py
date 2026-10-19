@@ -1,12 +1,13 @@
 """Accounts, settings, credentials, Telegram linking, Gmail OAuth (P6, section 13)."""
 from __future__ import annotations
 
+import html
 import json
 from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -234,30 +235,42 @@ def _redirect_uri() -> str:
     return get_settings().public_base_url.rstrip("/") + "/oauth/google/callback"
 
 
+OAUTH_COOKIE = "jobbot_oauth_nonce"
+
+
 @router.get("/users/{user_id}/gmail/connect", dependencies=[Depends(principal)])
-def gmail_connect(user_id: UUID) -> dict:
+def gmail_connect(user_id: UUID, response: Response) -> dict:
     from app.mail.accounts import load_credential
-    from app.mail.oauth import consent_url
+    from app.mail.oauth import STATE_TTL, consent_url, new_nonce
     with db.user_session(user_id) as s:
         client = load_credential(s, user_id, "gmail_client")
         email = s.execute(text("SELECT email FROM users WHERE id = :u"), {"u": user_id}).scalar()
     if client is None:
         raise HTTPException(409, "save your Google OAuth client first: PUT /users/{id}/credentials/gmail_client")
-    return {"url": consent_url(user_id, client[1]["client_id"], _redirect_uri(), login_hint=email),
+    nonce = new_nonce()
+    # Lax: sent on Google's top-level redirect back to us, not on cross-site subrequests.
+    response.set_cookie(OAUTH_COOKIE, nonce, max_age=STATE_TTL, httponly=True, samesite="lax",
+                        secure=_redirect_uri().startswith("https://"), path="/oauth/google")
+    return {"url": consent_url(user_id, client[1]["client_id"], _redirect_uri(), nonce, login_hint=email),
             "redirect_uri": _redirect_uri()}
 
 
 @router.get("/oauth/google/callback", response_class=HTMLResponse)
-def gmail_callback(state: str = Query(...), code: str | None = Query(default=None),
+def gmail_callback(request: Request, state: str = Query(...), code: str | None = Query(default=None),
                    error: str | None = Query(default=None)) -> HTMLResponse:
     from app.mail.accounts import load_credential, save_credential
     from app.mail.oauth import OAuthError, exchange_code, read_state
-    page = lambda msg: HTMLResponse(f"<!doctype html><title>JobBot</title><body style='font-family:sans-serif;"
-                                    f"padding:2rem'><h2>{msg}</h2><p><a href='/app/'>Back to JobBot</a></p></body>")
+
+    def page(msg: str, status: int = 200) -> HTMLResponse:          # msg may carry Google/user text: escape it
+        r = HTMLResponse(f"<!doctype html><title>JobBot</title><body style='font-family:sans-serif;padding:2rem'>"
+                         f"<h2>{html.escape(msg)}</h2><p><a href='/app/'>Back to JobBot</a></p></body>",
+                         status_code=status)
+        r.delete_cookie(OAUTH_COOKIE, path="/oauth/google")
+        return r
     try:
-        uid = read_state(state)
+        uid = read_state(state, request.cookies.get(OAUTH_COOKIE))
     except OAuthError as e:
-        return HTMLResponse(page(f"Connection failed: {e}").body, status_code=400)
+        return page(f"Connection failed: {e}", 400)
     if error or not code:
         return page(f"Google returned: {error or 'no code'}")
     with db.worker_session() as s:

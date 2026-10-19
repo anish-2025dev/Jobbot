@@ -35,6 +35,7 @@ from app.vault.schema import Vault
 log = logging.getLogger(__name__)
 Notify = Callable[..., None]
 ASSIST_TIMEOUT_MS = 15 * 60 * 1000
+MAX_FORM_STEPS = 12                     # Workday wizards run 5-8 steps; anything longer is a loop
 
 
 @dataclass
@@ -172,6 +173,7 @@ def run_application(application_id: int, context, *, notify: Notify | None = Non
                 return _to_waiting(application_id, mode="assisted", step="captcha", notify=notify,
                                    reason="CAPTCHA on the form: finish it in an assisted session")
             unresolved: list[str] = []
+            steps = 0
             while True:                                              # one pass per page of a multi-step form
                 fields = adapter.fields(page)
                 fp = plan(fields, ctx)
@@ -188,6 +190,14 @@ def run_application(application_id: int, context, *, notify: Notify | None = Non
                     break
                 if not adapter.advance(page):
                     break
+                steps += 1
+                step_errors = visible_errors(page)
+                if step_errors:            # "Next" didn't move on: stop instead of refilling the same step forever
+                    return _to_waiting(application_id, mode="assisted", step="form", notify=notify,
+                                       reason="form step not accepted: " + "; ".join(step_errors)[:300])
+                if steps >= MAX_FORM_STEPS:
+                    return _to_waiting(application_id, mode="assisted", step="form", notify=notify,
+                                       reason=f"form still going after {MAX_FORM_STEPS} steps: finish it yourself")
             if unresolved and not assisted:
                 return _to_waiting(application_id, mode="assisted", step="questions", notify=notify,
                                    unresolved=unresolved,

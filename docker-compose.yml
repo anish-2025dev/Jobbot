@@ -11,8 +11,9 @@ x-app: &app
 
 services:
   db:
-    image: pgvector/pgvector:pg16
-    environment: {POSTGRES_USER: jobbot, POSTGRES_PASSWORD: jobbot, POSTGRES_DB: jobbot, TZ: UTC}
+    image: pgvector/pgvector:0.8.0-pg16
+    # Set POSTGRES_PASSWORD in .env (and the same password in DATABASE_URL) on any shared machine.
+    environment: {POSTGRES_USER: jobbot, POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-jobbot}", POSTGRES_DB: jobbot, TZ: UTC}
     command: ["postgres", "-c", "timezone=UTC"]
     ports: ["127.0.0.1:5432:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
@@ -20,7 +21,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4-alpine
     # OTPs, rate-limit buckets, locks: nothing worth persisting.
     command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
     restart: unless-stopped

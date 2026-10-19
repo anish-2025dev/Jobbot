@@ -1,13 +1,15 @@
 """Gmail OAuth (section 13). Each user brings their own Google Cloud OAuth
 client (Desktop or Web type, published "In production" so refresh tokens
-don't expire after 7 days). The state parameter is HMAC-signed and expires,
-so a callback can't be replayed or bound to another user."""
+don't expire after 7 days). The state parameter is HMAC-signed, expires, and
+carries a hash of a nonce that lives in a cookie of the browser that started
+the flow, so a consent link can't be completed from another browser (login CSRF)."""
 from __future__ import annotations
 
 import base64
 import hashlib
 import hmac
 import json
+import secrets
 import time
 from urllib.parse import urlencode
 from uuid import UUID
@@ -30,13 +32,22 @@ def _secret() -> bytes:
     return hashlib.sha256(f"oauth-state|{s.session_secret or s.encryption_key}".encode()).digest()
 
 
-def make_state(user_id: UUID) -> str:
-    payload = json.dumps({"u": str(user_id), "e": int(time.time()) + STATE_TTL}, separators=(",", ":")).encode()
+def new_nonce() -> str:
+    return secrets.token_urlsafe(24)
+
+
+def _nonce_tag(nonce: str) -> str:
+    return hashlib.sha256(nonce.encode()).hexdigest()[:32]
+
+
+def make_state(user_id: UUID, nonce: str) -> str:
+    payload = json.dumps({"u": str(user_id), "e": int(time.time()) + STATE_TTL, "n": _nonce_tag(nonce)},
+                         separators=(",", ":")).encode()
     sig = hmac.new(_secret(), payload, hashlib.sha256).digest()[:16]
     return base64.urlsafe_b64encode(payload + b"." + sig).decode().rstrip("=")
 
 
-def read_state(state: str) -> UUID:
+def read_state(state: str, nonce: str | None) -> UUID:
     try:
         raw = base64.urlsafe_b64decode(state + "=" * (-len(state) % 4))
         payload, sig = raw.rsplit(b".", 1)
@@ -47,13 +58,16 @@ def read_state(state: str) -> UUID:
     data = json.loads(payload)
     if data["e"] < time.time():
         raise OAuthError("state expired")
+    if not nonce or not hmac.compare_digest(str(data.get("n", "")), _nonce_tag(nonce)):
+        raise OAuthError("this sign-in was started in another browser; start it again from the dashboard")
     return UUID(data["u"])
 
 
-def consent_url(user_id: UUID, client_id: str, redirect_uri: str, login_hint: str | None = None) -> str:
+def consent_url(user_id: UUID, client_id: str, redirect_uri: str, nonce: str,
+                login_hint: str | None = None) -> str:
     q = {"client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code",
          "scope": " ".join(SCOPES), "access_type": "offline", "prompt": "consent",
-         "include_granted_scopes": "true", "state": make_state(user_id)}
+         "include_granted_scopes": "true", "state": make_state(user_id, nonce)}
     if login_hint:
         q["login_hint"] = login_hint
     return f"{AUTH_URL}?{urlencode(q)}"

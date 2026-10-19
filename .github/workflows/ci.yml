@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:0.8.0-pg16
         env:
           POSTGRES_USER: jobbot
           POSTGRES_PASSWORD: jobbot
@@ -27,7 +27,7 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U jobbot" --health-interval 5s --health-timeout 5s --health-retries 20
       redis:
-        image: redis:7-alpine
+        image: redis:7.4-alpine
         ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20

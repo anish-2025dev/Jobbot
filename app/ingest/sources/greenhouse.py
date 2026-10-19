@@ -22,7 +22,7 @@ def fetch(f: Fetcher, slug: str, company: str, title_filter: TitleFilter = None)
             company_slug=slug, title=j.get("title", "").strip(),
             url=j.get("absolute_url") or f"https://boards.greenhouse.io/{slug}/jobs/{j['id']}",
             apply_url=j.get("absolute_url"),
-            req_id=str(j.get("requisition_id") or j["id"]),
+            req_id=str(j["id"]),            # posting id: the same id detect() reads from aggregator URLs
             description=j.get("content") or "", description_is_html=True,
             location=loc, locations=offices,
             posted_at=parse_iso(j.get("first_published") or j.get("updated_at")),
