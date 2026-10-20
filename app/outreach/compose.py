@@ -35,7 +35,7 @@ def words(text: str) -> int:
 
 
 def _intro(v: Vault) -> str:
-    edu = max(v.education, key=lambda e: e.graduation_year)
+    edu = max(v.higher_education(), key=lambda e: e.graduation_year)
     degree = edu.degree + (f" {edu.field_of_study}" if edu.field_of_study else "")
     return f"I'm {v.personal.full_name}, a {degree} student at {edu.institution} (graduating {edu.graduation_year})."
 

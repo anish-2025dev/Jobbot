@@ -158,7 +158,8 @@ def poll_aggregators(f: Fetcher, profiles: list[UserProfile], result: RoundResul
         with db.worker_session() as s:
             v = s.execute(text("SELECT data FROM vaults WHERE user_id = :u"), {"u": p.user_id}).scalar()
         exp = (v or {}).get("expectations", {})
-        for role in exp.get("role_types", [])[:3]:
+        roles = [*exp.get("role_types", []), *(r.get("name") for r in (v or {}).get("target_roles", []) if r.get("name"))]
+        for role in list(dict.fromkeys(roles))[:4]:
             for loc in [l for l in exp.get("locations", []) if l.lower() != "remote"][:3] or ["India"]:
                 queries[(role, loc)] += 1
     top = [q for q, _ in queries.most_common(cfg.aggregator_queries_per_run)]

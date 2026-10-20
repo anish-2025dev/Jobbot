@@ -28,7 +28,7 @@ def _project_names(v: Vault, r: Recipe) -> list[str]:
 
 
 def template_cover_letter(v: Vault, r: Recipe) -> str:
-    edu = max(v.education, key=lambda e: e.graduation_year)
+    edu = max(v.higher_education(), key=lambda e: e.graduation_year)
     role = r.title or "this role"
     company = r.company or "your team"
     skills = ", ".join(r.keywords[:4]) if r.keywords else ", ".join(v.skills[0].items[:3])

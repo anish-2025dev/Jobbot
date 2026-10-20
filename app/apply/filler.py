@@ -126,7 +126,7 @@ def standard_value(f: Field, ctx: FillContext) -> Decision | None:
     p, sa = v.personal, v.standard_answers
     label = _norm(f"{f.label} {f.name}")
     first, last = _first_last(p.full_name)
-    edu = max(v.education, key=lambda e: e.graduation_year)
+    edu = max(v.higher_education(), key=lambda e: e.graduation_year)
     latest = max(v.experience, key=lambda e: (e.end or "9999-99", e.start)) if v.experience else None
     cc, local_phone = _phone_parts(p.phone)
 

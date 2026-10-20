@@ -121,7 +121,12 @@ def test_size_limit(data):
     big = [{"id": f"b{i}", "text": "x" * 290} for i in range(8)]
     data["projects"] = [
         {"id": f"p{n}", "name": "P", "tech": ["Python"], "bullets": [dict(b, id=f"p{n}-{b['id']}") for b in big]}
-        for n in range(30)
+        for n in range(10)
+    ]
+    data["experience"] = [
+        {"id": f"e{n}", "company": "C", "title": "T", "employment_type": "internship", "start": "2025-01",
+         "bullets": [dict(b, id=f"e{n}-{b['id']}") for b in big]}
+        for n in range(15)
     ]
     _invalid(data, f"limit is {MAX_VAULT_BYTES}")
 

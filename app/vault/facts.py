@@ -65,6 +65,7 @@ def vault_facts(v: "Vault") -> VaultFacts:
     for lst in skill_lists:
         f.skills.update(norm_skill(s) for s in lst)
     f.skills.update(norm_skill(c.name) for c in v.certifications)
+    f.skills.update(norm_skill(s) for r in v.target_roles for s in r.skills)
 
     texts: list[str] = []
     for owner in list(v.experience) + list(v.projects):
@@ -75,6 +76,8 @@ def vault_facts(v: "Vault") -> VaultFacts:
         f.bullets[a.id] = a.text
         texts.append(a.text)
     texts += [ed.grade or "" for ed in v.education]
+    texts += [ed.score_text() or "" for ed in v.education]
+    texts += [r.summary or "" for r in v.target_roles] + [v.summary or ""]
     texts += [str(ed.graduation_year) for ed in v.education]
     sa = v.standard_answers
     texts += [str(x) for x in (sa.expected_ctc_lpa, sa.current_ctc_lpa, sa.notice_period_days) if x is not None]
