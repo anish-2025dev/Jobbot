@@ -414,3 +414,17 @@ def test_sms_webhook_feeds_pending_signin(api):
     assert r.json() == {"accepted": True, "waiting_sites": 1}
     assert otp.take_code(uid, "myworkday.com") == "445566"
     assert all("445566" not in k for k in get_redis().keys("*"))
+
+
+def test_closed_signup_is_reported_and_enforced(api, monkeypatch):
+    import app.config
+    assert api.get("/auth/config", headers=NOKEY).json() == {"signup": True}
+    monkeypatch.setenv("ALLOW_SIGNUP", "false")
+    app.config.get_settings.cache_clear()
+    try:
+        assert api.get("/auth/config", headers=NOKEY).json() == {"signup": False}   # login page hides the button
+        r = api.post("/auth/signup", json={"email": "late@example.com", "password": "a-long-password-1"}, headers=NOKEY)
+        assert r.status_code == 403 and "closed" in r.text
+    finally:
+        monkeypatch.delenv("ALLOW_SIGNUP")
+        app.config.get_settings.cache_clear()

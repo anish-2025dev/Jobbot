@@ -87,6 +87,8 @@ const Empty = ({ children }) => html`<div class="empty">${children}</div>`;
 function Auth({ onIn }) {
   const [mode, setMode] = useState("login");
   const [err, setErr] = useState("");
+  const [signupOpen, setSignupOpen] = useState(false);
+  useEffect(() => { api("/auth/config").then((c) => setSignupOpen(!!c.signup)).catch(() => {}); }, []);
   const submit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -108,8 +110,9 @@ function Auth({ onIn }) {
         autocomplete=${mode === "signup" ? "new-password" : "current-password"} />
       <p><button class="btn primary" type="submit">${mode === "login" ? "Sign in" : "Create account"}</button></p>
     </form>
-    <p><button class="btn" onClick=${() => { setErr(""); setMode(mode === "login" ? "signup" : "login"); }}>
-      ${mode === "login" ? "New here? Create an account" : "Have an account? Sign in"}</button></p>
+    ${signupOpen ? html`<p><button class="btn" onClick=${() => { setErr(""); setMode(mode === "login" ? "signup" : "login"); }}>
+      ${mode === "login" ? "New here? Create an account" : "Have an account? Sign in"}</button></p>`
+      : html`<p class="meta">Private instance: accounts are created by the admin on the server.</p>`}
   </div>`;
 }
 

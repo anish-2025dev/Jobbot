@@ -57,6 +57,12 @@ def _token_response(uid: UUID, pw_hash: str) -> dict:
     return {"user_id": str(uid), "token": issue_token(uid, pw_hash), "token_type": "bearer"}
 
 
+@router.get("/auth/config")
+def auth_config() -> dict:
+    """Public: lets the login page hide "Create an account" on a private instance."""
+    return {"signup": get_settings().allow_signup}
+
+
 @router.post("/auth/signup", status_code=201)
 def signup(body: Signup, request: Request) -> dict:
     if not get_settings().allow_signup:
