@@ -1,6 +1,8 @@
-"""Tier C: job-alert emails from LinkedIn, Naukri, Wellfound, Instahyre
-(section 5). Parsing the alerts we already receive needs no scraping and
-carries no account risk. These jobs are manual-only (C12)."""
+"""Tier C: job-alert emails (section 5) from LinkedIn, Naukri, Indeed, Glassdoor,
+foundit, Wellfound, Instahyre, Internshala, Cutshort, Hirist, Unstop, Shine,
+TimesJobs, iimjobs, apna and YC Work at a Startup. Parsing the alerts the user
+already receives needs no scraping and carries no account risk. These jobs are
+manual-only (C12): the bot never applies inside these portals."""
 from __future__ import annotations
 
 import re
@@ -10,7 +12,11 @@ from app.ingest.models import RawJob
 from app.mail.message import Message
 
 SOURCES = {"linkedin": "alert_linkedin", "naukri": "alert_naukri", "wellfound": "alert_wellfound",
-           "instahyre": "alert_instahyre"}
+           "instahyre": "alert_instahyre", "indeed": "alert_indeed", "glassdoor": "alert_glassdoor",
+           "foundit": "alert_foundit", "monsterindia": "alert_foundit", "internshala": "alert_internshala",
+           "cutshort": "alert_cutshort", "hirist": "alert_hirist", "unstop": "alert_unstop", "shine": "alert_shine",
+           "timesjobs": "alert_timesjobs", "iimjobs": "alert_iimjobs", "apna": "alert_apna",
+           "workatastartup": "alert_workatastartup", "ycombinator": "alert_workatastartup"}
 _SKIP_TEXT = re.compile(r"^(view( job)?|apply( now)?|see (all|more)|easy apply|unsubscribe|save|more jobs|\d+ applicants?)$", re.I)
 _EXP = re.compile(r"^\d+\s*-\s*\d+\s*yrs?$|^\d+\+?\s*yrs?$", re.I)
 

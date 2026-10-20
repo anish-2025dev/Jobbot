@@ -68,4 +68,5 @@ def make_router(notify: Callable | None = None, llm_enabled: bool = True):
     return route
 
 
-_ATS = {"greenhouse", "lever", "ashby", "smartrecruiters", "workable", "workday", "jsonld", "generic", "unknown"}
+_ATS = {"greenhouse", "lever", "ashby", "smartrecruiters", "workable", "workday", "recruitee", "rippling", "breezy",
+        "oracle", "jsonld", "generic", "unknown"}

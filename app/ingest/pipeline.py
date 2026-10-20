@@ -187,4 +187,5 @@ def process_user(s: Session, p: UserProfile, jobs: list[NormalizedJob], ctx: Con
     return st
 
 
-_ATS_ENUM = {"greenhouse", "lever", "ashby", "smartrecruiters", "workable", "workday", "jsonld", "generic", "unknown"}
+_ATS_ENUM = {"greenhouse", "lever", "ashby", "smartrecruiters", "workable", "workday", "recruitee", "rippling", "breezy",
+             "oracle", "jsonld", "generic", "unknown"}

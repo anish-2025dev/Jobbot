@@ -22,6 +22,27 @@ ALERT_SENDERS = re.compile(
     r"(jobalerts-noreply|jobs-noreply|jobs-listings|alerts)@linkedin\.com|@naukri\.com$|naukrialerts|"
     r"@(mail\.)?instahyre\.com$|@(hi\.|mail\.)?wellfound\.com$|@angel\.co$|@(mail\.)?indeed\.com$|"
     r"@(mail\.)?glassdoor\.(com|co\.in)$|@(mail\.)?foundit\.in$", re.I)
+# Portals whose alert mail shares a sender with application-status mail: an alert only when the
+# subject also reads like one, so a shortlist or test invite from the same address is never trashed.
+PORTAL_ALERT_SENDERS = re.compile(
+    r"@([a-z0-9-]+\.)*(internshala\.com|cutshort\.io|hirist\.(tech|com)|unstop\.com|shine\.com|timesjobs\.com|"
+    r"iimjobs\.com|apna\.co|workatastartup\.com|ycombinator\.com|monsterindia\.com)$", re.I)
+ALERT_SUBJECTS = re.compile(
+    r"job alert|(jobs?|internships?|roles?|openings?) for you|new (jobs?|internships?|openings?|opportunit)|"
+    r"recommended (jobs?|internships?|for you)|matching (jobs?|your)|(jobs?|internships?) (matching|based on|you may)|"
+    r"top \d* ?(jobs?|companies)|opportunities for you|hiring now|startups? (hiring|looking)", re.I)
+NOT_ALERT = re.compile(r"interview|assessment|offer|recruiter|shortlist|selected|congratulat|invit|schedul|"
+                       r"test link|next round|application (status|update)|viewed your|hackathon result", re.I)
+
+
+def is_job_alert(sender: str, subject: str) -> bool:
+    if NOT_ALERT.search(subject or ""):
+        return False
+    if ALERT_SENDERS.search(sender or ""):
+        return True
+    return bool(PORTAL_ALERT_SENDERS.search(sender or "") and ALERT_SUBJECTS.search(subject or ""))
+
+
 ATS_SENDERS = re.compile(
     r"greenhouse\.io|greenhouse-mail\.io|lever\.co|hire\.lever\.co|ashbyhq\.com|smartrecruiters\.com|"
     r"myworkday\.com|myworkdayjobs\.com|workablemail\.com|workable\.com|icims\.com|jobvite\.com|"
@@ -153,7 +174,7 @@ def classify(msg: Message, *, context: str | None = None, now: datetime | None =
 
     if re.match(r"(mailer-daemon|postmaster)@", sender) or (_RULES[0][2].search(subject)):
         return Classification("bounce", 0.97, bounced_recipient=_bounced_recipient(msg), reasons=["bounce"])
-    if ALERT_SENDERS.search(sender) and not re.search(r"interview|assessment|offer|recruiter", subject, re.I):
+    if is_job_alert(sender, subject):
         return Classification("job_alert", 0.95, reasons=["alert sender"])
 
     hits: dict[str, float] = {}
