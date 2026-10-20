@@ -62,6 +62,16 @@ def _resume_files(vault: Vault, recipe: Recipe, tmp: Path) -> tuple[Path, Path |
     return pdf, tmp / f"{stem}.docx"
 
 
+def _identity(s, user_id) -> dict[str, str]:
+    """Decrypted identity documents for this fill only; never logged or stored."""
+    from app.vault import identity as ident_store
+    try:
+        return ident_store.load(s, user_id).values()
+    except Exception:                   # missing key / undecryptable: forms asking get Assisted
+        log.warning("identity documents unavailable for user %s", user_id)
+        return {}
+
+
 def _to_waiting(application_id: int, *, mode: str, step: str, reason: str, notify: Notify | None,
                 unresolved: list[str] | None = None) -> Outcome:
     from app.apply.waiting import add_to_waiting
@@ -154,9 +164,11 @@ def run_application(application_id: int, context, *, notify: Notify | None = Non
     with tempfile.TemporaryDirectory(prefix="jobbot-apply-") as tmpd:   # resume files deleted after use (C2)
         tmp = Path(tmpd)
         pdf, docx_path = _resume_files(vault, recipe, tmp)
+        with db.worker_session() as s:
+            identity = _identity(s, app["user_id"])
         ctx = FillContext(vault=vault, recipe=recipe, company=app["company_name"], title=app["title"],
                           job_country=_country(app.get("location"), vault), referrer=app.get("referrer"),
-                          learned=learned, llm=llm, resume_path=str(pdf))
+                          learned=learned, llm=llm, resume_path=str(pdf), identity=identity)
         page = context.new_page()
         try:
             opened = adapter.open(page, url)

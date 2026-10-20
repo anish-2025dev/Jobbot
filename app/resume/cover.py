@@ -64,6 +64,15 @@ def standard_answers(v: Vault) -> dict[str, str]:
         out["Work authorization"] = sa.work_authorization
     if sa.requires_sponsorship is not None:
         out["Requires visa sponsorship"] = "Yes" if sa.requires_sponsorship else "No"
+    yes_no = {"Expected CTC negotiable": sa.expected_ctc_negotiable, "Willing to sign a service bond": sa.willing_to_sign_bond,
+              "Willing to work night shifts": sa.willing_night_shifts, "Willing to travel": sa.willing_to_travel,
+              "Own laptop": sa.has_laptop, "Currently employed": sa.currently_employed}
+    out.update({k: "Yes" if flag else "No" for k, flag in yes_no.items() if flag is not None})
+    if sa.education_gap_years is not None:
+        out["Gap years in education"] = str(sa.education_gap_years) + (f" ({sa.gap_reason})" if sa.gap_reason else "")
+    higher = v.higher_education()
+    if higher and all(e.active_backlogs is not None for e in higher):
+        out["Active backlogs"] = str(sum(e.active_backlogs for e in higher))
     out.update(sa.custom)
     return out
 
