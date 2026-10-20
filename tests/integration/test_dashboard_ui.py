@@ -76,7 +76,7 @@ def test_signup_and_every_view_renders(server, browser):
     # profile form loads the saved vault, edits a field, saves with If-Match
     page.get_by_role("button", name="Profile", exact=True).click()
     page.wait_for_function("document.querySelector('#f-personal-full_name')?.value === 'Sample Candidate'")
-    page.get_by_role("button", name="Target roles").click()
+    page.locator("nav.steps").get_by_role("button", name="Target roles").click()
     page.wait_for_function("document.querySelector('#f-target_roles-1-name')?.value === 'Data Engineer'")
     page.fill("#f-target_roles-1-name", "Data and Analytics Engineer")
     page.get_by_role("button", name="Save profile").click()
