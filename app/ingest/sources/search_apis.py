@@ -9,16 +9,20 @@ Findwork GET  https://findwork.dev/api/jobs/?search=&location=&sort_by=date  (Au
 """
 from __future__ import annotations
 
-from app.ingest.http import Fetcher
+from app.ingest.http import Fetcher, NotFoundError, SourceError
 from app.ingest.models import RawJob
 from app.ingest.sources.common import parse_iso
 from app.ingest.sources.feeds import _job
 
 
 def jooble(f: Fetcher, api_key: str, keywords: str, location: str = "") -> list[RawJob]:
-    data = f.post_json("jooble", f"https://jooble.org/api/{api_key}",
-                       {"keywords": keywords, "location": location, "page": "1"},
-                       display_url="https://jooble.org/api/<key>")      # the key is in the path
+    try:
+        data = f.post_json("jooble", f"https://jooble.org/api/{api_key}",
+                           {"keywords": keywords, "location": location, "page": "1"},
+                           display_url="https://jooble.org/api/<key>")      # the key is in the path
+    except (SourceError, NotFoundError) as e:
+        message = str(e).replace(api_key, "[REDACTED]") if api_key else str(e)
+        raise type(e)(message) from None
     out = []
     for j in (data or {}).get("jobs") or []:
         if not j.get("link") or not j.get("title"):

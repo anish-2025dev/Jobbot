@@ -31,7 +31,7 @@ def load_vault(s: Session, user_id: UUID) -> tuple[Vault, int]:
     stored = repo.get_vault(s, user_id)
     if stored is None:
         raise NoVault(str(user_id))
-    return Vault.model_validate(stored.data), stored.revision
+    return Vault.from_storage(stored.data), stored.revision
 
 
 def build_for_job(s: Session, user_id: UUID, *, jd_text: str, title: str, company: str,

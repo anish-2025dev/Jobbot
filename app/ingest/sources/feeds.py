@@ -8,7 +8,7 @@ unless the link is a known ATS (then the company's board gets discovered too).
 
 | key            | endpoint                                         | asks for            |
 |----------------|--------------------------------------------------|---------------------|
-| remotive       | remotive.com/api/remote-jobs?category=...        | <= 4 calls/day      |
+| remotive       | remotive.com/api/remote-jobs                         | <= 4 calls/day      |
 | remoteok       | remoteok.com/api                                 | link back, polite   |
 | arbeitnow      | arbeitnow.com/api/job-board-api                  | polite              |
 | jobicy         | jobicy.com/api/v2/remote-jobs?industry=...       | a few calls/day     |
@@ -44,16 +44,15 @@ def _job(source: str, *, company: str, title: str, url: str, apply_url: str | No
 
 def remotive(f: Fetcher, title_filter: TitleFilter = None) -> list[RawJob]:
     out = []
-    for category in ("software-dev", "data", "devops"):
-        data = f.get_json("remotive", "https://remotive.com/api/remote-jobs", params={"category": category, "limit": 100})
-        for j in (data or {}).get("jobs") or []:
-            if not keep(j.get("title") or "", title_filter):
-                continue
-            out.append(_job("remotive", company=j.get("company_name"), title=j.get("title"), url=j.get("url"),
-                            req_id=str(j.get("id")), description=j.get("description") or "",
-                            location=j.get("candidate_required_location"), workplace="remote",
-                            posted_at=parse_iso(j.get("publication_date")), salary_text=j.get("salary") or None,
-                            employment_type=j.get("job_type")))
+    data = f.get_json("remotive", "https://remotive.com/api/remote-jobs", params={"limit": 100})
+    for j in (data or {}).get("jobs") or []:
+        if not keep(j.get("title") or "", title_filter):
+            continue
+        out.append(_job("remotive", company=j.get("company_name"), title=j.get("title"), url=j.get("url"),
+                        req_id=str(j.get("id")), description=j.get("description") or "",
+                        location=j.get("candidate_required_location"), workplace="remote",
+                        posted_at=parse_iso(j.get("publication_date")), salary_text=j.get("salary") or None,
+                        employment_type=j.get("job_type")))
     return out
 
 

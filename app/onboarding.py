@@ -375,7 +375,7 @@ def checklist(s, user_id) -> list[dict]:
     vault_row = s.execute(text("SELECT data FROM vaults WHERE user_id = :u"), {"u": user_id}).scalar()
     creds = set(s.execute(text("SELECT host FROM credentials WHERE user_id = :u"), {"u": user_id}).scalars())
     user = s.execute(text("SELECT telegram_chat_id, settings FROM users WHERE id = :u"), {"u": user_id}).first()
-    warnings = lint(Vault.model_validate(vault_row)) if vault_row else []
+    warnings = lint(Vault.from_storage(vault_row)) if vault_row else []
     st = user.settings or {}
     return [
         {"step": "vault", "done": vault_row is not None, "detail": f"{len(warnings)} suggestions" if vault_row else "fill your vault"},

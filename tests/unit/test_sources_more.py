@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.ingest.detect import detect, is_manual_portal
-from app.ingest.http import make_fetcher
+from app.ingest.http import NotFoundError, SourceError, make_fetcher
 from app.ingest.sources import breezy, oracle, recruitee, rippling, search_apis
 from app.ingest.sources.feeds import FEEDS
 from app.ingest.sources.oracle import _LOCATION_IDS
@@ -103,7 +103,8 @@ def test_feeds_parse_and_filter():
     payloads = {
         "https://remotive.com/api/remote-jobs": {"jobs": [{"id": 1, "url": "https://remotive.com/remote-jobs/1", "title": "Backend Developer",
                                                           "company_name": "A", "publication_date": "2026-10-17T16:04:29",
-                                                          "candidate_required_location": "Worldwide", "description": "<p>Go</p>"}]},
+                                                          "candidate_required_location": "Worldwide", "description": "<p>Go</p>"},
+                                                         {"id": 2, "title": "Sales Lead", "url": "https://remotive.com/2"}]},
         "https://remoteok.com/api": [{"legal": "notice"}, {"id": "9", "position": "Data Engineer", "company": "B",
                                                             "url": "https://remoteok.com/remote-jobs/9", "date": "2026-10-18T19:00:02+00:00",
                                                             "apply_url": "https://boards.greenhouse.io/bco/jobs/123", "salary_max": 0}],
@@ -121,14 +122,17 @@ def test_feeds_parse_and_filter():
         "https://www.workingnomads.com/api/exposed_jobs/": [{"url": "https://www.workingnomads.com/job/go/1/", "title": "Rater",
                                                              "company_name": "G", "pub_date": "2026-10-20T07:41:37-04:00"}],
     }
-    f = _fetcher(payloads)
+    seen = []
+    f = _fetcher(payloads, seen)
     tech = lambda t: any(w in t.lower() for w in ("developer", "engineer"))  # noqa: E731
     got = {k: feed.fetch(f, tech) for k, feed in FEEDS.items()}
-    assert {k: len(v) for k, v in got.items()} == {"remotive": 3, "remoteok": 1, "arbeitnow": 0, "jobicy": 1,
+    assert {k: len(v) for k, v in got.items()} == {"remotive": 1, "remoteok": 1, "arbeitnow": 0, "jobicy": 1,
                                                     "himalayas": 1, "themuse": 1, "workingnomads": 0}
     ro = got["remoteok"][0]
     assert ro.ats == "greenhouse" and ro.company_slug == "bco"   # ATS link: board gets discovered
     assert got["himalayas"][0].location == "India" and got["remotive"][0].workplace == "remote"
+    requests = [r for r in seen if r.url.host == "remotive.com"]
+    assert len(requests) == 1 and "category" not in requests[0].url.params
 
 
 def test_jooble_and_findwork():
@@ -143,11 +147,41 @@ def test_jooble_and_findwork():
     assert fw[0].workplace == "remote" and seen[1].headers["Authorization"] == "Token TOK"
 
 
+@pytest.mark.parametrize("status,error", [(400, SourceError), (404, NotFoundError), (410, NotFoundError), (200, SourceError)])
+def test_jooble_redacts_key_from_request_failures(status, error):
+    import traceback
+
+    key = "private-jooble-key"
+    f = make_fetcher(httpx.MockTransport(lambda r: httpx.Response(status, text="not JSON")),
+                     RateLimiter(UnlimitedBuckets()), sleep=lambda s: None)
+    with pytest.raises(error) as exc:
+        search_apis.jooble(f, key, "developer")
+    assert type(exc.value) is error
+    assert key not in str(exc.value) and "<key>" in str(exc.value)
+    assert exc.value.__suppress_context__ and exc.value.__cause__ is None
+    assert key not in "".join(traceback.format_exception(exc.value))
+
+
+@pytest.mark.parametrize("error", [SourceError, NotFoundError])
+def test_jooble_redacts_every_key_occurrence(error):
+    from unittest.mock import Mock
+
+    f = Mock()
+    f.post_json.side_effect = error("secret in URL /secret and again secret")
+    with pytest.raises(error, match=r"\[REDACTED\] in URL /\[REDACTED\] and again \[REDACTED\]"):
+        search_apis.jooble(f, "secret", "developer")
+
+
 @pytest.mark.parametrize("url,portal,req", [
     ("https://in.indeed.com/viewjob?jk=a1b2c3d4e5f6", "indeed", "a1b2c3d4e5f6"),
     ("https://www.glassdoor.co.in/job-listing/x?jobListingId=1009876543210", "glassdoor", "1009876543210"),
     ("https://internshala.com/job/detail/software-developer-job-in-bangalore-at-acme1729076587", "internshala", "1729076587"),
     ("https://cutshort.io/job/Backend-Engineer-Acme-xYz12AbC", "cutshort", "xYz12AbC"),
+    ("https://cutshort.io/job/Backend-Engineer-bengaluru", "cutshort", None),
+    ("https://cutshort.io/job/Backend-Engineer-developer", "cutshort", None),
+    ("https://cutshort.io/job/Backend-Engineer-abc12", "cutshort", None),
+    ("https://cutshort.io/job/Backend-Engineer-abc_123", "cutshort", None),
+    ("https://cutshort.io/job/Backend-Engineer-1abcde/", "cutshort", "1abcde"),
     ("https://unstop.com/jobs/sde-acme-1234567", "unstop", "1234567"),
     ("https://www.hirist.tech/j/sde-1-java-1234567.html", "hirist", "1234567"),
     ("https://www.foundit.in/job/software-engineer-acme-bengaluru-34567890", "foundit", "34567890"),
@@ -167,6 +201,11 @@ def test_alert_portal_links(url, portal, req):
     ("alerts@linkedin.com", "Interview with Acme", False),
     ("noreply@naukri.com", "Recruiter from Acme viewed your profile", False),
     ("someone@cutshort.io", "Quick question about your profile", False),   # portal sender, not an alert subject
+    ("jobs@cutshort.io", "Hand-selected jobs for you", True),
+    ("jobs@cutshort.io", "You have been selected for a job", False),
+    ("jobs@cutshort.io", "You are selected", False),
+    ("jobs@cutshort.io", "Selected for the next round", False),
+    ("jobs@cutshort.io", "You were not selected", False),
 ])
 def test_alert_classification_never_eats_positive_mail(sender, subject, alert):
     assert is_job_alert(sender, subject) is alert

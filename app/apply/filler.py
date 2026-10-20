@@ -102,11 +102,6 @@ def pick_option(options: list[str], value: str) -> str | None:
 DECLINE = re.compile(r"decline|prefer not|don.?t wish|do not wish|not to (say|answer|disclose)|rather not|choose not", re.I)
 
 
-def _first_last(full: str) -> tuple[str, str]:
-    parts = full.split()
-    return (parts[0], " ".join(parts[1:]) if len(parts) > 1 else "")
-
-
 def _link(v: Vault, word: str) -> str | None:
     for l in v.personal.links:
         if word in l.label.lower() or word in l.url.lower():
@@ -128,7 +123,7 @@ def standard_value(f: Field, ctx: FillContext) -> Decision | None:
     v = ctx.vault
     p, sa = v.personal, v.standard_answers
     label = _norm(f"{f.label} {f.name}")
-    first, last = p.first_name or _first_last(p.full_name)[0], p.last_name or _first_last(p.full_name)[1]
+    first, _, last = p.name_parts()
     edu = max(v.higher_education(), key=lambda e: e.graduation_year)
     latest = max(v.experience, key=lambda e: (e.end or "9999-99", e.start)) if v.experience else None
     cc, local_phone = _phone_parts(p.phone)
@@ -245,6 +240,7 @@ def profile_value(f: Field, ctx: FillContext, label: str, d) -> Decision | None 
     when the label isn't one of these, so the generic rules get their turn."""
     v = ctx.vault
     p, sa, bg = v.personal, v.standard_answers, v.background
+    _, middle, _ = p.name_parts()
     ident = ctx.identity
     home = p.current_address
     perm = p.permanent_address or home
@@ -278,7 +274,7 @@ def profile_value(f: Field, ctx: FillContext, label: str, d) -> Decision | None 
 
     which = perm if re.search(r"permanent", label) else home
     rules: list[tuple[str, object]] = [
-        (r"middle name", lambda: d(p.middle_name) if p.middle_name else Decision(f.key, None, 0.9, "skip-optional")),
+        (r"middle name", lambda: d(middle) if middle else Decision(f.key, None, 0.9, "skip-optional")),
         (r"alternat\w* (e ?mail)|secondary e ?mail", lambda: d(p.alternate_email)),
         (r"alternat\w* (phone|mobile|contact|number)|secondary (phone|mobile)", lambda: d(p.alternate_phone)),
         (r"whats ?app", lambda: d(p.whatsapp_phone or p.phone, 0.9)),

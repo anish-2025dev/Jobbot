@@ -126,7 +126,7 @@ def _portal_job_id(path: str, q: dict) -> str | None:
     if m:
         return m.group(1)
     m = re.search(r"/jobs?/[^/]*-([A-Za-z0-9]{6,})/?$", path)
-    return m.group(1) if m else None
+    return m.group(1) if m and re.search(r"\d", m.group(1)) else None
 
 
 def is_manual_portal(det: Detected | None) -> bool:

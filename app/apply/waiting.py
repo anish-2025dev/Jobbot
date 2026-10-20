@@ -46,7 +46,7 @@ def add_to_waiting(s: Session, application_id: int, *, extra: dict | None = None
         s.execute(text("DELETE FROM waiting_list WHERE id = :w"), {"w": lowest["id"]})
         s.execute(text("DELETE FROM applications WHERE id = :i AND applied_at IS NULL AND status = 'waiting'"),
                   {"i": lowest["application_id"]})
-    vault = Vault.model_validate(s.execute(text("SELECT data FROM vaults WHERE user_id = :u"), {"u": uid}).scalar_one())
+    vault = Vault.from_storage(s.execute(text("SELECT data FROM vaults WHERE user_id = :u"), {"u": uid}).scalar_one())
     recipe = Recipe.model_validate(app["recipe"]) if app.get("recipe") else None
     expires = datetime.now(timezone.utc) + timedelta(hours=cfg.waiting_list_ttl_hours)
     referral = s.execute(text("SELECT status, referral FROM referral_queue WHERE application_id = :i"),

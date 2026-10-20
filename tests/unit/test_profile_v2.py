@@ -55,9 +55,13 @@ def test_v1_vault_still_loads_and_upgrades(data):
 def test_name_parts_derived(data):
     data["personal"]["full_name"] = "Anish Kumar Gupta"
     p = Vault.model_validate(data).personal
-    assert (p.first_name, p.middle_name, p.last_name) == ("Anish", "Kumar", "Gupta")
+    assert p.name_parts() == ("Anish", "Kumar", "Gupta")
+    assert (p.first_name, p.middle_name, p.last_name) == (None, None, None)
+    p.full_name = "Riya Devi Sharma"
+    assert p.name_parts() == ("Riya", "Devi", "Sharma")
+    assert p.model_dump()["first_name"] is None
     data["personal"]["first_name"] = "Ani"
-    assert Vault.model_validate(data).personal.first_name == "Ani"
+    assert Vault.model_validate(data).personal.name_parts() == ("Ani", "Kumar", "Gupta")
 
 
 def test_age(v):
@@ -118,6 +122,18 @@ def test_lint_flags_role_skill_outside_pool(data):
     data["target_roles"][0]["skills"].append("Kubernetes")
     msgs = [w for w in lint(Vault.model_validate(data)) if w["path"] == "target_roles[0].skills"]
     assert msgs and "Kubernetes" in msgs[0]["message"]
+
+
+def test_role_skills_do_not_authorize_new_resume_facts(data):
+    from app.vault.facts import vault_facts
+
+    data["target_roles"][0]["skills"].append("Kubernetes")
+    data["certifications"] = [{"name": "Terraform", "issuer": "Example"}]
+    v = Vault.model_validate(data)
+    facts = vault_facts(v)
+    assert facts.untraceable_skills(["Kubernetes", "Terraform", "Python"]) == ["Kubernetes"]
+    recipe = _recipe(v, SDE_JD + " Kubernetes required.", "Backend Engineer")
+    assert "Kubernetes" not in {s for g in recipe.skills for s in g.items}
 
 
 def test_profile_gaps(v):

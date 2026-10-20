@@ -52,7 +52,8 @@ def build(app: dict, vault: Vault, recipe: Recipe | None, *, expires_at: datetim
         answers.update(recipe.answers)
     links = {l.label: l.url for l in vault.personal.links}
     p = vault.personal
-    profile = {"First name": p.first_name, "Middle name": p.middle_name, "Last name": p.last_name,
+    first, middle, last = p.name_parts()
+    profile = {"First name": first, "Middle name": middle, "Last name": last,
                "Date of birth": "/".join(reversed(p.date_of_birth.split("-"))) if p.date_of_birth else None,
                "Father's name": vault.background.father_name,
                "Address": ", ".join(x for x in (p.current_address.line1, p.current_address.line2, p.current_address.city,

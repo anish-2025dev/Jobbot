@@ -111,3 +111,18 @@ def test_self_identification_when_shared():
 def test_generic_rules_still_apply(label):
     vals, unresolved = fill(Field("x", label, "text", required=True))
     assert vals["x"] and not unresolved
+
+
+def test_derived_names_follow_full_name_in_forms_and_ready_pack():
+    from app.apply.readypack import build
+
+    ctx = _ctx()
+    ctx.vault.personal.full_name = "Riya Devi Sharma"
+    vals, unresolved = fill(Field("fn", "First Name", "text"), Field("mn", "Middle Name", "text"),
+                            Field("ln", "Last Name", "text"), ctx=ctx)
+    assert vals == {"fn": "Riya", "mn": "Devi", "ln": "Sharma"} and not unresolved
+    pack = build({"id": 1, "user_id": "user", "title": "SDE", "company_name": "Acme", "apply_url": "https://acme.dev"},
+                 ctx.vault, None)
+    assert [pack["copy"][key] for key in ("First name", "Middle name", "Last name")] == ["Riya", "Devi", "Sharma"]
+    assert ctx.vault.personal.first_name is None and ctx.vault.personal.middle_name is None
+    assert ctx.vault.personal.last_name is None

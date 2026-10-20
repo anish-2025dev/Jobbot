@@ -65,7 +65,7 @@ def load_profiles(s, user_ids: list[UUID] | None = None) -> list[UserProfile]:
     profiles = []
     for r in s.execute(text(q), params):
         try:
-            vault = Vault.model_validate(r.data)
+            vault = Vault.from_storage(r.data)
         except Exception as e:  # a vault that no longer validates is skipped, not fatal
             log.warning("user %s vault invalid, skipping: %s", r.id, e)
             continue

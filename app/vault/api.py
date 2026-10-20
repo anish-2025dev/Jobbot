@@ -47,10 +47,14 @@ def _validate(data: dict) -> Vault:
 
 
 def _identity_fields(s, user_id: UUID) -> set[str]:
+    return set(_load_identity(s, user_id).model_dump(exclude_none=True))
+
+
+def _load_identity(s, user_id: UUID) -> ident_store.Identity:
     try:
-        return set(ident_store.load(s, user_id).model_dump(exclude_none=True))
+        return ident_store.load(s, user_id)
     except Exception:           # undecryptable (key rotated): treat as empty, never fail the editor
-        return set()
+        return ident_store.Identity()
 
 
 def _body(vault: Vault, revision: int, response: Response, updated_at=None,
@@ -151,7 +155,7 @@ def get_identity(user_id: UUID) -> dict:
     """Masked: the last 4 characters of each number. Full values never leave the server."""
     with db.user_session(user_id) as s:
         _ensure_user(s, user_id)
-        return {"data": ident_store.masked(ident_store.load(s, user_id))}
+        return {"data": ident_store.masked(_load_identity(s, user_id))}
 
 
 @router.patch("/users/{user_id}/identity")
@@ -160,7 +164,7 @@ def patch_identity(user_id: UUID, patch: dict = Body(...)) -> dict:
     with db.user_session(user_id) as s:
         _ensure_user(s, user_id)
         ident_store.lock(s, user_id)          # held until commit: concurrent edits apply one after another
-        current = ident_store.load(s, user_id).model_dump(mode="json", exclude_none=True)
+        current = _load_identity(s, user_id).model_dump(mode="json", exclude_none=True)
         try:
             new = ident_store.Identity.model_validate(merge_patch(current, patch))
         except ValidationError as e:

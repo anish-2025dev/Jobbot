@@ -131,7 +131,7 @@ def _recipe_and_vault(s: Session, rq: dict):
     from app.resume.recipe import Recipe
     from app.vault.schema import Vault
     row = s.execute(text("SELECT recipe FROM applications WHERE id = :a"), {"a": rq["application_id"]}).scalar()
-    vault = Vault.model_validate(s.execute(text("SELECT data FROM vaults WHERE user_id = :u"),
+    vault = Vault.from_storage(s.execute(text("SELECT data FROM vaults WHERE user_id = :u"),
                                            {"u": rq["user_id"]}).scalar_one())
     return (Recipe.model_validate(row) if row else None), vault
 

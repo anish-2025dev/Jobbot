@@ -31,7 +31,8 @@ ALERT_SUBJECTS = re.compile(
     r"job alert|(jobs?|internships?|roles?|openings?) for you|new (jobs?|internships?|openings?|opportunit)|"
     r"recommended (jobs?|internships?|for you)|matching (jobs?|your)|(jobs?|internships?) (matching|based on|you may)|"
     r"top \d* ?(jobs?|companies)|opportunities for you|hiring now|startups? (hiring|looking)", re.I)
-NOT_ALERT = re.compile(r"interview|assessment|offer|recruiter|shortlist|selected|congratulat|invit|schedul|"
+NOT_ALERT = re.compile(r"interview|assessment|offer|recruiter|shortlist|\bselected (for|to)\b|"
+                       r"\b(been|are|were|not) selected\b|congratulat|invit|schedul|"
                        r"test link|next round|application (status|update)|viewed your|hackathon result", re.I)
 
 

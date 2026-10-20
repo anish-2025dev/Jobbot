@@ -65,7 +65,6 @@ def vault_facts(v: "Vault") -> VaultFacts:
     for lst in skill_lists:
         f.skills.update(norm_skill(s) for s in lst)
     f.skills.update(norm_skill(c.name) for c in v.certifications)
-    f.skills.update(norm_skill(s) for r in v.target_roles for s in r.skills)
 
     texts: list[str] = []
     for owner in list(v.experience) + list(v.projects):

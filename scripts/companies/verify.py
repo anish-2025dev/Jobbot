@@ -22,7 +22,7 @@ INDIA = re.compile(r"india|bengaluru|bangalore|hyderabad|pune|mumbai|delhi|gurga
                    r"vadodara|nagpur|bhubaneswar|\bin\b", re.I)
 TECH = re.compile(r"engineer|developer|\bsde\b|software|data|analyst|devops|\bsre\b|\bqa\b|test|machine learning|\bml\b|"
                   r"\bai\b|cloud|security|backend|frontend|full ?stack|mobile|android|\bios\b|platform|infrastructure|"
-                  r"scientist|architect|programmer|technical|it ", re.I)
+                  r"scientist|architect|programmer|technical|\bit\b", re.I)
 ENTRY = re.compile(r"\bintern(ship)?\b|graduate|new grad|fresher|trainee|apprentice|entry[- ]level|\bjunior\b|\bjr\.?\b|"
                    r"engineer[- ](i|1)\b|\bsde[- ]?(i|1)\b|developer[- ](i|1)\b|analyst[- ](i|1)\b|associate (software|engineer|"
                    r"developer|data|analyst|consultant)|campus|early career|university|\bget\b|graduate engineer", re.I)
@@ -115,15 +115,24 @@ def workday(slug):
     tenant = host_tenant.split(".")[0]
     url = f"https://{host_tenant}/wday/cxs/{tenant}/{site}/jobs"
     rows = []
+    seen = set()
+
+    def append_postings(postings):
+        for j in postings:
+            key = j.get("externalPath") or (j.get("title"), j.get("locationsText") or "")
+            if key not in seen:
+                seen.add(key)
+                rows.append((j.get("title"), j.get("locationsText") or ""))
+
     r = client.post(url, json={"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": ""})
     if r.status_code != 200 or "jobPostings" not in r.text:
         return None
     total = r.json().get("total") or 0
-    rows += [(j.get("title"), j.get("locationsText")) for j in r.json().get("jobPostings") or []]
+    append_postings(r.json().get("jobPostings") or [])
     for text in ("India", "intern India", "graduate India", "software engineer India"):
         rr = client.post(url, json={"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": text})
         if rr.status_code == 200:
-            rows += [(j.get("title"), j.get("locationsText") or "") for j in rr.json().get("jobPostings") or []]
+            append_postings(rr.json().get("jobPostings") or [])
     t = tally(rows)
     t["jobs"] = max(total, t["jobs"])
     return t

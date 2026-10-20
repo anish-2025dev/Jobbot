@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from app.mail.alerts_parse import parse_alert
-from app.mail.classify import classify, extract_deadline, extract_otp
+from app.mail.classify import classify, extract_deadline, extract_otp, is_job_alert
 from app.mail.gmail import GmailAuthError, GmailClient
 from app.mail.message import from_gmail, from_rfc822
 from app.notify.telegram import TelegramBot
@@ -95,6 +95,17 @@ def test_interview_link_and_deadline():
 
 
 # --- Tier C alert parsing -------------------------------------------------------------
+def test_hand_selected_job_recommendation_is_parsed():
+    msg = make_msg("jobs@cutshort.io", "Hand-selected jobs for you",
+                   "Backend Engineer\nAcme\nBengaluru", html=(
+                       '<a href="https://cutshort.io/job/Backend-Engineer-Acme-xYz12AbC">Backend Engineer</a>'))
+    assert is_job_alert(msg.from_addr, msg.subject)
+    assert classify(msg).cls == "job_alert"
+    jobs = parse_alert(msg)
+    assert len(jobs) == 1
+    assert (jobs[0].title, jobs[0].company, jobs[0].req_id) == ("Backend Engineer", "Acme", "xYz12AbC")
+
+
 LINKEDIN_HTML = """<table><tr><td>
 <a href="https://www.linkedin.com/comm/jobs/view/4011112222/?trackingId=abc">Software Engineer I</a></td></tr>
 <tr><td>Northwind Payments · Bengaluru, Karnataka, India</td></tr>

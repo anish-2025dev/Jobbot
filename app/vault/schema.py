@@ -17,7 +17,7 @@ import re
 from typing import Annotated, Literal
 
 from pydantic import (AfterValidator, BaseModel, ConfigDict, Field,
-                      StringConstraints, field_validator, model_validator)
+                      StringConstraints, ValidationInfo, field_validator, model_validator)
 
 MAX_VAULT_BYTES = 64 * 1024   # spec budgets ~50 KB/user
 MAX_PROJECTS = 10
@@ -100,16 +100,12 @@ class Personal(_Model):
     permanent_address: Address | None = None   # None = same as current
     links: list[Link] = Field(default_factory=list, max_length=12)
 
-    @model_validator(mode="after")
-    def split_name(self) -> "Personal":
+    def name_parts(self) -> tuple[str | None, str | None, str | None]:
+        """Resolve missing parts from the current full name without storing them."""
         parts = self.full_name.split()
-        if self.first_name is None and parts:
-            self.first_name = parts[0]
-        if self.last_name is None and len(parts) > 1:
-            self.last_name = parts[-1]
-        if self.middle_name is None and len(parts) > 2:
-            self.middle_name = " ".join(parts[1:-1])
-        return self
+        return (self.first_name if self.first_name is not None else (parts[0] if parts else None),
+                self.middle_name if self.middle_name is not None else (" ".join(parts[1:-1]) if len(parts) > 2 else None),
+                self.last_name if self.last_name is not None else (parts[-1] if len(parts) > 1 else None))
 
     def age_on(self, today) -> int | None:
         if not self.date_of_birth:
@@ -324,13 +320,25 @@ class Vault(_Model):
     target_roles: list[TargetRole] = Field(default_factory=list, max_length=MAX_TARGET_ROLES)
     education: list[Education] = Field(min_length=1, max_length=8)
     experience: list[Experience] = Field(default_factory=list, max_length=15)
-    projects: list[Project] = Field(min_length=1, max_length=MAX_PROJECTS)
+    projects: list[Project] = Field(min_length=1, json_schema_extra={"maxItems": MAX_PROJECTS})
     skills: list[SkillGroup] = Field(min_length=1, max_length=15)
     extra_keywords: TagList = Field(default_factory=list, max_length=100)
     certifications: list[Certification] = Field(default_factory=list, max_length=20)
     achievements: list[Bullet] = Field(default_factory=list, max_length=15)
     standard_answers: StandardAnswers = Field(default_factory=StandardAnswers)
     expectations: Expectations
+
+    @field_validator("projects")
+    @classmethod
+    def project_limit(cls, projects: list[Project], info: ValidationInfo) -> list[Project]:
+        if len(projects) > MAX_PROJECTS and not (info.context or {}).get("stored_vault"):
+            raise ValueError(f"at most {MAX_PROJECTS} projects allowed")
+        return projects
+
+    @classmethod
+    def from_storage(cls, data: dict) -> "Vault":
+        """Load older vaults without the project-count limit imposed on new writes."""
+        return cls.model_validate(data, context={"stored_vault": True})
 
     @model_validator(mode="after")
     def integrity(self) -> "Vault":

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Callable
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlalchemy import text
 
 from app import db
@@ -48,7 +49,7 @@ class Outcome:
 def _load(s, application_id: int) -> tuple[dict, Vault, Recipe | None, dict]:
     app = dict(s.execute(text("SELECT * FROM applications WHERE id = :i"), {"i": application_id}).mappings().one())
     vrow = s.execute(text("SELECT data, revision FROM vaults WHERE user_id = :u"), {"u": app["user_id"]}).one()
-    vault = Vault.model_validate(vrow.data)
+    vault = Vault.from_storage(vrow.data)
     recipe = Recipe.model_validate(app["recipe"]) if app.get("recipe") else None
     learned = {r.question_hash: r.answer for r in s.execute(text(
         "SELECT question_hash, answer FROM form_answers WHERE user_id = :u"), {"u": app["user_id"]})}
@@ -130,9 +131,17 @@ def run_application(application_id: int, context, *, notify: Notify | None = Non
     """`context` is a Playwright BrowserContext (headed for assisted runs)."""
     if mail_client_for is None:
         from app.mail.accounts import mail_client as mail_client_for
-    with db.worker_session() as s:
-        app, vault, recipe, learned = _load(s, application_id)
-        pre = gate.check(s, app, via="referral" if app["via_referral"] else "normal")
+    try:
+        with db.worker_session() as s:
+            app, vault, recipe, learned = _load(s, application_id)
+            pre = gate.check(s, app, via="referral" if app["via_referral"] else "normal")
+    except ValidationError:
+        reason = "Stored vault or resume recipe is invalid; update your profile and rebuild the resume."
+        with db.worker_session() as s:
+            s.execute(text("""UPDATE applications SET status = 'failed', failure_step = 'load',
+                              failure_reason = :r, last_status_at = now() WHERE id = :i"""),
+                      {"r": reason, "i": application_id})
+        return Outcome("failed", reason, "load")
     if not pre.ok:
         with db.worker_session() as s:
             if pre.not_before is not None:
