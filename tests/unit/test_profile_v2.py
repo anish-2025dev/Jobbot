@@ -216,3 +216,36 @@ def test_identity_never_in_vault(data):
     data["personal"]["pan"] = "ABCDE1234F"
     with pytest.raises(ValidationError, match="Extra inputs"):
         Vault.model_validate(data)
+
+
+# --- resume import: education ----------------------------------------------------------
+def test_import_education_pairs_degree_with_institution_not_location():
+    """Regression: a two-column PDF used to turn 'New Delhi, India' into the institution and
+    fold the school rows into one garbled 'Class XII' degree."""
+    from app.onboarding import parse_education
+    got = parse_education([
+        "Indian Institute of Information Technology   New Delhi, India",
+        "B.Tech in Computer Science and Engineering; CGPA: 8.52/10   Aug 2022 - May 2026",
+        "Delhi Public School, R.K. Puram   New Delhi, India",
+        "Class XII (CBSE): 92.4%   2022",
+    ])
+    assert [(e["level"], e["institution"], e["degree"]) for e in got] == [
+        ("bachelors", "Indian Institute of Information Technology", "B.Tech"),
+        ("class_xii", "Delhi Public School, R.K. Puram", "Class XII")]
+    assert got[0]["field_of_study"] == "Computer Science" and got[0]["score"] == 8.52 and got[0]["end"] == "2026-05"
+    assert got[1]["board"] == "CBSE" and got[1]["score_scale"] == "percentage" and got[1]["show_on_resume"] is False
+
+
+def test_import_education_degree_first_layout():
+    from app.onboarding import parse_education
+    got = parse_education(["B.Tech, Computer Science   2022 - 2026", "Example Institute of Technology, New Delhi",
+                           "CGPA 8.4", "Senior Secondary (XII), CBSE  2022", "Kendriya Vidyalaya, Delhi", "91%"])
+    assert [(e["level"], e["institution"]) for e in got] == [("bachelors", "Example Institute of Technology"),
+                                                             ("class_xii", "Kendriya Vidyalaya")]
+    assert got[0]["score"] == 8.4 and got[1]["score"] == 91.0
+
+
+def test_import_school_without_institution_is_left_for_the_user():
+    from app.onboarding import parse_education
+    got = parse_education(["Class X (CBSE): 95%   2020"])
+    assert got[0]["institution"] == "" and got[0]["degree"] == "Class X"

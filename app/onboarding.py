@@ -145,6 +145,108 @@ def _home_city(lines: list[str]) -> str:
     return ""
 
 
+_DEGREE = re.compile(r"b\.?\s?tech|\bb\.?\s?e\b|bachelor|m\.?\s?tech|master|\bb\.?\s?sc\b|\bm\.?\s?sc\b|\bbca\b|\bmca\b|"
+                     r"\bmba\b|ph\.?\s?d|diploma|class\s*(x|xii|10|12)\b|\b(10|12)th\b|\bssc\b|\bhsc\b|senior secondary|"
+                     r"higher secondary|matriculation|intermediate|\bpuc\b|\bb\.?\s?com\b|\bbba\b|\bba\b", re.I)
+_INST = re.compile(r"universit|institut|college|school|vidyalaya|vidyapeeth|academy|\biit\b|\bnit\b|\biiit\b|\bbits\b|"
+                   r"polytechnic|campus|kendriya|public school", re.I)
+_BOARD = re.compile(r"\b(cbse|icse|isc|ib|igcse|nios|state board|[a-z]+ state board|[a-z]+ board)\b", re.I)
+_SCORE = re.compile(r"(?:c?gpa|cpi|sgpa)\s*[:\-]?\s*(\d{1,2}(?:\.\d+)?)\s*(?:/\s*(10|4)(?:\.0+)?)?|(\d{2,3}(?:\.\d+)?)\s*%", re.I)
+
+
+def _place_only(line: str) -> bool:
+    """'New Delhi, India' / 'Bengaluru' / '2022 - 2026': a location or date column, not an institution."""
+    rest = _RANGE.sub("", line)
+    rest = re.sub(r"\b(19|20)\d{2}\b", "", rest).strip(" ,|-–—")
+    if not rest:
+        return True
+    low = rest.lower()
+    words = re.findall(r"[a-z]+", low)
+    return len(words) <= 4 and not _INST.search(rest) and not _DEGREE.search(rest) and (
+        "india" in low or any(re.search(rf"\b{c}\b", low) for c in _CITIES))
+
+
+def _strip_columns(line: str) -> str:
+    """Drop the right-hand columns pdftotext glues on: dates, 'City, India', scores."""
+    line = _RANGE.sub("", line)
+    parts = [p.strip(" ,|") for p in re.split(r"\s{2,}|\s\|\s|\t", line) if p.strip(" ,|")]
+    keep = [p for p in parts if not _place_only(p)] or parts[:1]
+    out = " ".join(keep)
+    for c in sorted(_CITIES, key=len, reverse=True):          # "... Institute of X, New Delhi, India"
+        out = re.sub(rf",?\s*\b{c}\b(,\s*india)?\s*$", "", out, flags=re.I)
+    return re.sub(r",?\s*india\s*$", "", out, flags=re.I).strip(" ,|-–—")
+
+
+def parse_education(raw: list[str]) -> list[dict]:
+    """Pair every degree line (B.Tech, Class XII, ...) with its institution. Works whether a
+    resume puts the institution above the degree or below it, and keeps school entries
+    (Class X/XII) separate instead of folding them into the degree."""
+    lines = [_BULLET.sub("", l).strip() for l in raw if l.strip()]
+    deg_idx = [i for i, l in enumerate(lines) if _DEGREE.search(l)]
+    inst_idx = [i for i, l in enumerate(lines) if i not in deg_idx and not _place_only(l)
+                and (_INST.search(l) or not _SCORE.search(l))]
+    if not deg_idx:
+        return []
+    inst_first = bool(inst_idx) and inst_idx[0] < deg_idx[0]
+    used: set[int] = set()
+    out = []
+    for n, d in enumerate(deg_idx):
+        nxt = deg_idx[n + 1] if n + 1 < len(deg_idx) else len(lines)
+        prev = deg_idx[n - 1] if n else -1
+        if inst_first:
+            cands = [i for i in inst_idx if prev < i < d and i not in used]
+            inst = cands[-1] if cands else None
+            next_start = min([i for i in inst_idx if i > d] + [nxt])     # the next entry's institution line
+            block = range(inst if inst is not None else d, next_start)
+        else:
+            cands = [i for i in inst_idx if d < i < nxt and i not in used]
+            inst = cands[0] if cands else None
+            block = range(d, nxt)
+        if inst is not None:
+            used.add(inst)
+        text_ = " ".join(lines[i] for i in block if 0 <= i < len(lines)) or lines[d]
+        if inst is not None and lines[inst] not in text_:
+            text_ += " " + lines[inst]
+        years = [int(y) for y in re.findall(r"\b(19\d{2}|20\d{2})\b", text_)]
+        if not years:
+            continue
+        degree = _strip_columns(re.split(r"[;|]|\s{2,}", lines[d])[0])
+        degree = re.sub(_SCORE, "", degree).strip(" ,:-–—()")
+        institution = _strip_columns(lines[inst]) if inst is not None else ""
+        if not institution and _INST.search(lines[d]):         # "B.Tech, Institute of X" on one line
+            bits = [b.strip() for b in re.split(r",| - | – | at ", lines[d]) if b.strip()]
+            institution = next((_strip_columns(b) for b in bits if _INST.search(b)), "")
+            degree = next((b for b in bits if _DEGREE.search(b)), degree)
+        from app.vault.schema import guess_level
+        level = guess_level(degree)
+        start, end, _ = _dates(text_)
+        if level in ("class_x", "class_xii"):
+            degree = {"class_x": "Class X", "class_xii": "Class XII"}[level]
+        # A missing institution stays empty: the editor flags it instead of saving a placeholder.
+        entry = {"level": level, "institution": institution[:120], "degree": (degree or "Degree")[:120],
+                 "graduation_year": max(years), **({"start": start} if start else {}), **({"end": end} if end else {})}
+        sm = _SCORE.search(text_)
+        if sm:
+            if sm.group(3):
+                entry.update(score=float(sm.group(3)), score_scale="percentage")
+            else:
+                value, scale = float(sm.group(1)), sm.group(2) or ("10" if float(sm.group(1)) <= 10 else None)
+                if scale in ("10", "4") and value <= float(scale):
+                    entry.update(score=value, score_scale="cgpa_10" if scale == "10" else "cgpa_4")
+        if level in ("class_x", "class_xii"):
+            bm = _BOARD.search(text_)
+            if bm:
+                entry["board"] = bm.group(1).upper() if len(bm.group(1)) <= 5 else bm.group(1).title()
+            entry["show_on_resume"] = False
+        else:
+            fm = re.search(r"\b(?:in|of)\s+([A-Z][A-Za-z &]+?(?:Engineering|Science|Technology|Applications|Commerce|Arts))", lines[d])
+            if fm:
+                entry["field_of_study"] = fm.group(1).strip()[:120]
+                entry["degree"] = entry["degree"].split(" in ")[0].split(" of ")[0].strip()[:120] or entry["degree"]
+        out.append(entry)
+    return out
+
+
 def heuristic_draft(text_: str, today: date | None = None) -> dict:
     today = today or date.today()
     sec = split_sections(text_)
@@ -163,21 +265,7 @@ def heuristic_draft(text_: str, today: date | None = None) -> dict:
     used: set[str] = set()
     city = _home_city(head[:10])
 
-    education = []
-    for header, extra, bullets in _entries(sec.get("education", [])):
-        lines = [header, *extra, *bullets]
-        years = [int(y) for y in re.findall(r"\b(19\d{2}|20\d{2})\b", " ".join(lines))]
-        start, end, _ = _dates(" ".join(lines))
-        grade = re.search(r"(c?gpa|cpi)\s*[:\-]?\s*(\d+(?:\.\d+)?\s*(/\s*\d+)?)|(\d{2,3}(?:\.\d+)?\s*%)", " ".join(lines), re.I)
-        degree_line = next((l for l in lines if re.search(r"b\.?\s?tech|b\.?e\b|bachelor|m\.?\s?tech|master|b\.?sc|m\.?sc|"
-                                                          r"bca|mca|ph\.?d|diploma|class (x|xii)|12th|10th", l, re.I)), "")
-        inst = header if header != degree_line else (extra[0] if extra else header)
-        if years:
-            education.append({"institution": re.split(r"\s{2,}|\|", inst)[0].strip(" ,")[:120],
-                              "degree": (re.split(r",|\||\s{2,}", degree_line)[0].strip() or "Degree")[:120],
-                              "graduation_year": max(years), **({"start": start} if start else {}),
-                              **({"end": end} if end else {}),
-                              **({"grade": grade.group(0).strip()} if grade else {})})
+    education = parse_education(sec.get("education", []))
 
     experience = []
     for header, extra, bullets in _entries(sec.get("experience", [])):
@@ -220,14 +308,17 @@ def heuristic_draft(text_: str, today: date | None = None) -> dict:
     achievements = [{"id": _slug(f"ach-{i + 1}", used), "text": _BULLET.sub("", l)[:300]}
                     for i, l in enumerate(sec.get("achievements", [])[:15]) if len(_BULLET.sub("", l)) >= 10]
 
-    return {"schema_version": 1,
+    return {"schema_version": 2,
             "personal": {"full_name": name, "email": email or "", "phone": phone or "",
                          "location": {"city": city, "country": "India"}, "links": links[:8]},
-            "education": education, "experience": experience, "projects": projects, "skills": skills,
+            "target_roles": [{"id": "sde", "name": "Software Development Engineer",
+                              "title_keywords": ["SDE", "Software Engineer", "Software Developer", "Backend Developer",
+                                                 "Graduate Engineer Trainee"]}],
+            "education": education, "experience": experience[:15], "projects": projects[:10], "skills": skills,
             "achievements": achievements, "standard_answers": {},
             # starts at the city on the resume (or India); the user edits it in the review step
             "expectations": {"locations": [city or "India"], "remote_types": ["onsite", "hybrid", "remote"],
-                             "role_types": ["Software Development Engineer"], "experience_level": "fresher"}}
+                             "role_types": [], "experience_level": "fresher"}}
 
 
 def _traceable(bullet: str, source_lines: list[str], source_numbers: set[str]) -> bool:
