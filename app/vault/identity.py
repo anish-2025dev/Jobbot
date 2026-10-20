@@ -82,6 +82,13 @@ def masked(ident: Identity) -> dict:
     return out
 
 
+def lock(s: Session, user_id: UUID) -> None:
+    """Serialize read-merge-write of one user's documents for the rest of the transaction.
+    An advisory lock also covers the first write, when there is no row to lock yet, so a
+    stale edit can never bring back a document another request just removed."""
+    s.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": f"jobbot:identity:{user_id}"})
+
+
 def load(s: Session, user_id: UUID) -> Identity:
     from app.mail.accounts import load_credential
     found = load_credential(s, user_id, HOST)

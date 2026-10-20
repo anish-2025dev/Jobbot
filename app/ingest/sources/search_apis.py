@@ -17,7 +17,8 @@ from app.ingest.sources.feeds import _job
 
 def jooble(f: Fetcher, api_key: str, keywords: str, location: str = "") -> list[RawJob]:
     data = f.post_json("jooble", f"https://jooble.org/api/{api_key}",
-                       {"keywords": keywords, "location": location, "page": "1"})
+                       {"keywords": keywords, "location": location, "page": "1"},
+                       display_url="https://jooble.org/api/<key>")      # the key is in the path
     out = []
     for j in (data or {}).get("jobs") or []:
         if not j.get("link") or not j.get("title"):

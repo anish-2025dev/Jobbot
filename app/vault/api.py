@@ -159,6 +159,7 @@ def patch_identity(user_id: UUID, patch: dict = Body(...)) -> dict:
     """JSON Merge Patch: send only what changes; null removes a document."""
     with db.user_session(user_id) as s:
         _ensure_user(s, user_id)
+        ident_store.lock(s, user_id)          # held until commit: concurrent edits apply one after another
         current = ident_store.load(s, user_id).model_dump(mode="json", exclude_none=True)
         try:
             new = ident_store.Identity.model_validate(merge_patch(current, patch))

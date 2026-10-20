@@ -170,3 +170,20 @@ def test_alert_portal_links(url, portal, req):
 ])
 def test_alert_classification_never_eats_positive_mail(sender, subject, alert):
     assert is_job_alert(sender, subject) is alert
+
+
+@pytest.mark.parametrize("status", [404, 403, 500])
+def test_jooble_key_never_in_error_text(status):
+    f = make_fetcher(httpx.MockTransport(lambda req: httpx.Response(status, text="<html>nope</html>")),
+                     RateLimiter(UnlimitedBuckets()), sleep=lambda s: None)
+    with pytest.raises(Exception) as e:
+        search_apis.jooble(f, "SECRETKEY123", "sde", "India")
+    assert "SECRETKEY123" not in str(e.value)
+
+
+def test_jooble_key_not_in_non_json_error():
+    f = make_fetcher(httpx.MockTransport(lambda req: httpx.Response(200, text="<html>challenge</html>")),
+                     RateLimiter(UnlimitedBuckets()), sleep=lambda s: None)
+    with pytest.raises(Exception) as e:
+        search_apis.jooble(f, "SECRETKEY123", "sde")
+    assert "SECRETKEY123" not in str(e.value)
