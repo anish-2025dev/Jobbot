@@ -2,6 +2,7 @@
 import { h, render } from "preact";
 import { useEffect, useState, useCallback } from "preact/hooks";
 import htm from "htm";
+import { ProfileEditor } from "./profile.js";
 
 const html = htm.bind(h);
 const BUCKETS = { 3: "High", 2: "Medium", 1: "Low", 0: "Stretch" };
@@ -148,7 +149,7 @@ function Today({ go }) {
       <button class="btn primary" onClick=${() => go("referrals")}>Review drafts</button>`}
   `;
 }
-const label = (s) => ({ vault: "Vault", mail: "Connect mail", telegram: "Link Telegram", email_finders: "Email finders", auto_apply: "Auto-apply" }[s] || s);
+const label = (s) => ({ vault: "Profile", mail: "Connect mail", telegram: "Link Telegram", email_finders: "Email finders", auto_apply: "Auto-apply" }[s] || s);
 
 function Reply({ r, reload }) {
   const kinds = { offer: "Offer", interview: "Interview", test: "Test", recruiter: "Recruiter", info_request: "Info requested",
@@ -339,64 +340,8 @@ function Applications() {
   `;
 }
 
-// ---------------------------------------------------------------- vault
-function VaultEditor() {
-  const [text, setText] = useState("");
-  const [rev, setRev] = useState(null);
-  const [msg, setMsg] = useState(null);
-  const [warnings, setWarnings] = useState([]);
-  const load = async () => {
-    try {
-      const r = await api(u("/vault"));
-      setText(JSON.stringify(r.data, null, 2)); setRev(r.revision); setWarnings(r.warnings);
-    } catch (e) {
-      if (e.status === 404) { const ex = await fetch("example-vault.json").then((x) => x.ok ? x.text() : "{}").catch(() => "{}"); setText(ex); setRev(null); }
-      else setMsg({ error: true, text: e.message });
-    }
-  };
-  useEffect(() => { load(); }, []);
-  const parse = () => { try { return JSON.parse(text); } catch (e) { setMsg({ error: true, text: `Not valid JSON: ${e.message}` }); return null; } };
-  const validate = async () => {
-    const data = parse(); if (!data) return;
-    const r = await api(u("/vault/validate"), { method: "POST", body: data });
-    setWarnings(r.warnings);
-    setMsg(r.valid ? { text: "Valid. Nothing saved yet." } : { error: true, text: r.errors.map((e) => `${e.loc.join(".")}: ${e.msg}`).join("\n") });
-  };
-  const save = async () => {
-    const data = parse(); if (!data) return;
-    try {
-      const r = await api(u("/vault"), { method: "PUT", body: data, headers: rev ? { "If-Match": `"${rev}"` } : {} });
-      setRev(r.revision); setWarnings(r.warnings); setMsg({ text: `Saved (revision ${r.revision}).` });
-    } catch (e) {
-      const errs = Array.isArray(e.detail) ? e.detail.map((x) => `${x.loc.join(".")}: ${x.msg}`).join("\n") : e.message;
-      setMsg({ error: true, text: e.status === 409 ? "Someone changed the vault in another tab. Reload to get the latest." : errs });
-    }
-  };
-  const importResume = async (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    const fd = new FormData(); fd.append("file", f);
-    try {
-      const r = await api(u("/onboarding/import"), { method: "POST", body: fd });
-      setText(JSON.stringify(r.draft, null, 2)); setWarnings(r.warnings);
-      setMsg(r.errors.length ? { error: true, text: `Draft from your resume. Fill these before saving:\n${r.errors.map((x) => `${x.loc.join(".")}: ${x.msg}`).join("\n")}` }
-                             : { text: "Draft from your resume. Review every line, then save." });
-    } catch (err) { setMsg({ error: true, text: err.message }); }
-  };
-  return html`
-    <h1>Vault</h1>
-    <p class="lede">The only source for your resumes. Every skill, number and claim on any resume or email must come from here, so add real metrics to your bullets.</p>
-    <div class="toolbar">
-      <button class="btn primary" onClick=${save}>Save vault</button>
-      <button class="btn" onClick=${validate}>Check</button>
-      <label class="btn" style="margin:0">Import from resume <input type="file" accept=".pdf,.docx,.txt" onChange=${importResume} hidden /></label>
-      ${rev && html`<span class="meta">Revision ${rev}</span>`}
-    </div>
-    ${msg && html`<p class=${`notice ${msg.error ? "error" : ""}`} style="white-space:pre-wrap">${msg.text}</p>`}
-    ${warnings.length > 0 && html`<details open><summary>${warnings.length} suggestions</summary><ul>${warnings.map((w) => html`<li><span class="meta">${w.path}</span> ${w.message}</li>`)}</ul></details>`}
-    <label for="vault-json">Vault JSON</label>
-    <textarea id="vault-json" class="code" spellcheck="false" value=${text} onInput=${(e) => setText(e.target.value)}></textarea>
-  `;
-}
+// ---------------------------------------------------------------- profile (vault)
+const Profile = () => html`<${ProfileEditor} api=${api} u=${u} toast=${toast}/>`;
 
 // ---------------------------------------------------------------- settings
 function Settings() {
@@ -477,7 +422,7 @@ function MailLog() {
 
 // ---------------------------------------------------------------- shell
 const VIEWS = { today: ["Today", Today], jobs: ["Ranked jobs", Jobs], waiting: ["Waiting", Waiting], referrals: ["Referrals", Referrals],
-                applications: ["Applications", Applications], vault: ["Vault", VaultEditor], settings: ["Settings", Settings] };
+                applications: ["Applications", Applications], vault: ["Profile", Profile], settings: ["Settings", Settings] };
 
 function App() {
   const read = () => (location.hash.replace(/^#\//, "") || "today").split("/")[0];

@@ -1,19 +1,21 @@
-// Typst fallback. Every value is a JSON-escaped string literal (|s), so user
-// text is never parsed as Typst markup.
-#set page(paper: ((( paper|s ))) , margin: (top: 0.45in, bottom: 0.45in, x: 0.5in))
+// Typst fallback, same layout as resume.tex.j2. Every value is a JSON-escaped string
+// literal (|s), so user text is never parsed as Typst markup.
+#set page(paper: ((( paper|s ))) , margin: (top: 0.4in, bottom: 0.4in, x: 0.5in))
 #set text(size: 10pt, ligatures: false, hyphenate: false)
 #set par(leading: 0.5em, spacing: 0.5em)
-#let rsection(t) = { v(5pt); text(size: 12pt, weight: "bold", upper(t)); v(-3pt); line(length: 100%, stroke: 0.4pt); v(0pt) }
+#let rsection(t) = { v(4pt); text(weight: "bold", upper(t)); v(-4pt); line(length: 100%, stroke: 0.5pt); v(0pt) }
 #align(center)[
-  #text(size: 17pt, weight: "bold", ((( name|s ))) )
+  #text(size: 20pt, weight: "bold", ((( name|s ))) )
   #linebreak()
-  ((* for c in contact *))#box(text( ((( c|s ))) ))((* if not loop.last *)) | ((* endif *))((* endfor *))
+  #text(size: 9pt)[((* for text, href in contact_links *))((* if href *))#link( ((( href|s ))) )[#text( ((( text|s ))) )]((* else *))#text( ((( text|s ))) )((* endif *))((* if not loop.last *)) | ((* endif *))((* endfor *))]
 ]
 ((* for s in sections *))
 #rsection( ((( s.title|s ))) )
-((* for en in s.entries *))
-#grid(columns: (1fr, auto), [#text(weight: "bold", ((( en.heading|s ))) )((* if en.sub *))#text( ((( (", " ~ en.sub)|s ))) )((* endif *))], [#text( ((( en.right|s ))) )])
-((* if en.second *))#emph( ((( en.second|s ))) )
+((* if s.paragraph *))#text( ((( s.paragraph|s ))) )
+
+((* endif *))((* for en in s.entries *))
+#grid(columns: (1fr, auto), [#text(weight: "bold", ((( en.heading|s ))) )((* if en.sub *))#text( ", " )#emph( ((( en.sub|s ))) )((* endif *))], [#text( ((( en.right|s ))) )])
+((* if en.second *))((* if en.second_href *))#text(size: 9pt)[#link( ((( en.second_href|s ))) )[#text( ((( en.second|s ))) )]]((* else *))#text(size: 9pt, ((( en.second|s ))) )((* endif *))
 ((* endif *))((* for b in en.bullets *))- #text( ((( b|s ))) )
 ((* endfor *))#v(2pt)
 ((* endfor *))((* for label, text in s.lines *))#text(weight: "bold", ((( (label ~ ': ')|s ))) )#text( ((( text|s ))) )

@@ -50,9 +50,11 @@ Resumes need one of: Tectonic (used in Docker), XeLaTeX, pdfLaTeX or Typst.
 ## First run
 
 1. **Create your account** in the dashboard. The first account becomes the admin.
-2. **Fill your vault** (Vault tab). Either import your existing resume (PDF/DOCX), which
-   gives you a draft to review, or start from the example. Use real numbers in your
-   bullets: a metric that isn't in the vault can never appear on a resume.
+2. **Fill your profile** (Profile tab), one section at a time. Required: Basics, Target
+   roles, Education, Projects, Skills, Job preferences. You can import your existing resume
+   (Import / JSON) for a first draft, then review every section. Use real numbers in your
+   bullets: a metric that isn't in your profile can never appear on a resume. See
+   [Profile and resumes](#profile-and-resumes).
 3. **Connect mail** (Settings). The bot needs it to confirm applications, catch replies,
    clean up and send referral emails.
    - *Gmail (recommended):* in Google Cloud, create a project, enable the Gmail API, and
@@ -63,12 +65,13 @@ Resumes need one of: Tectonic (used in Docker), XeLaTeX, pdfLaTeX or Typst.
      Paste the client ID and secret, then click *Connect Gmail*.
    - *IMAP fallback:* your address plus a Google app password.
 4. **Link Telegram** (Settings, then *Get link code*) for instant alerts and one-tap approvals.
-5. **Add companies to poll.** The registry grows by itself whenever an aggregator listing
-   links to a Greenhouse, Lever, Ashby, SmartRecruiters or Workday board. To seed it:
+5. **Add companies to poll.** `data/companies.csv` is a verified list of employers with
+   open tech roles, India and fresher hiring first (see [Job sources](#job-sources)):
    ```bash
-   docker compose exec api python -m app.cli seed-companies companies.csv   # name,careers_url
+   docker compose exec api python -m app.cli seed-companies data/companies.csv
    ```
-   Optionally add JSearch and Adzuna keys in `.env` for Tier B.
+   The registry also grows by itself whenever a feed or alert links to a company board.
+   Optionally add free keys for JSearch, Adzuna, Jooble and Findwork in `.env` for more Tier B.
 6. **Use the ranked list for a week** (the lean-first mode). Auto-apply is off by default:
    open *Ranked jobs*, download the tailored resume, apply yourself, then press *I applied*.
    The same gate (C4–C6) and bookkeeping apply as for the bot.
@@ -78,6 +81,54 @@ Resumes need one of: Tectonic (used in Docker), XeLaTeX, pdfLaTeX or Typst.
 Useful commands: `python -m app.cli run <job>` runs one scheduler job now (`ingest`, `mail`,
 `outreach`, `hourly`, `digest`, `nightly`, `weekly`). `python -m app.cli resume --vault v.json
 --jd jd.txt --title "SDE I" --company Acme --out r.pdf --docx` builds a resume with no database.
+
+## Profile and resumes
+
+One profile, many resumes: every job gets a resume built for it at apply time.
+
+- **Fixed facts** (name, contact, education, links) are the same on every resume.
+- **Target roles** (up to 10, e.g. *Software Development Engineer*, *Data Analyst*): each has
+  the job titles it covers, its own 2-line summary, the skills to list first and the projects
+  to prefer. A job's title picks the role (title keywords, then role family, then text
+  similarity).
+- **Pools** the resume picks from: up to 10 projects, up to 15 internships/jobs, and a skill
+  pool of up to 200. Each resume lists about 28 skills: the job's must-haves, then its
+  nice-to-haves, the role's priority skills, then the tech of the chosen projects.
+- **Layout** (single column, ATS-safe, one page): name and linked contact line, Summary,
+  Experience, Technical Skills, Projects (3–4), Education, Certifications, Achievements.
+  Class X/XII appear only if you tick *show on resume*.
+- **Application profile**: everything forms ask that never goes on a resume: name parts,
+  date of birth, addresses with PIN, parents' names, languages, Class X/XII board and score,
+  backlogs, gap years, bond / night shifts / laptop answers, and self-identification
+  (declined unless you choose to share it). Missing answers send that form to you
+  (Assisted mode) instead of the bot guessing.
+- **ID documents** (PAN, Aadhaar, passport, driving licence, voter ID, UAN) are stored
+  encrypted (AES-GCM, per user), shown back only masked, never put in a resume, a Ready Pack
+  or an LLM prompt, and typed only into forms that ask for them.
+
+The same resume PDF is used for the application upload and attached to referral emails.
+
+## Job sources
+
+40 sources in four tiers (`sources` table; each has its own rate limit and health status):
+
+| Tier | Sources | How |
+|---|---|---|
+| A: company boards (10) | Greenhouse, Lever, Ashby, SmartRecruiters, Workday, Recruitee, Rippling, Breezy, Oracle Recruiting Cloud, Workable (links) | Public keyless APIs, polled per company every 2 h |
+| B: search and board APIs (12) | JSearch (LinkedIn/Indeed/Glassdoor listings), Adzuna India, Jooble, Findwork, HN Who's Hiring, Remotive, RemoteOK, Arbeitnow, Jobicy, Himalayas, The Muse, Working Nomads | Keyed ones per (role, city); keyless boards every 4–6 h as they ask |
+| C: alert emails (16) | LinkedIn, Naukri, Indeed, Glassdoor, foundit, Wellfound, Instahyre, Internshala, Cutshort, Hirist, Unstop, Shine, TimesJobs, iimjobs, apna, YC Work at a Startup | Parsed from the alerts you already get; manual apply only (C12) |
+| D: career pages (2) | schema.org JSON-LD, LLM extraction | Any other careers URL |
+
+Turn on job alerts on the Tier C sites with the mailbox you connect; the bot reads them,
+ranks the jobs with everything else, and trashes the alert mail after parsing. Mail from the
+same portals about a shortlist, test or interview is never treated as an alert.
+
+**`data/companies.csv`** lists employers whose boards were checked against the live APIs on
+the date in its `verified` column, with their open, tech, India and entry-level counts.
+`segment` orders them: `india-fresher` (entry-level tech roles in India), `india`,
+`global-fresher` (intern/new-grad roles, often remote), `global`. Seeded companies are pinned
+in the registry; boards that disappear are re-detected weekly. Regenerate or extend it with
+the scripts in `scripts/companies/`.
 
 ## Deploying on free tiers
 
@@ -108,7 +159,7 @@ and `migrate` from the compose file on the VM.
 |---|---|
 | Vault (single source of resume facts) | `app/vault/` |
 | Resume engine: selection, LLM tailoring, truth validator, LaTeX/Typst, ATS check, DOCX | `app/resume/` |
-| Fetchers (Greenhouse, Lever, Ashby, SmartRecruiters, Workday, JSearch, Adzuna, HN, JSON-LD, LLM fallback) | `app/ingest/sources/` |
+| Fetchers (10 ATS boards, 12 search/board APIs, JSON-LD, LLM fallback) | `app/ingest/sources/` |
 | Normalize, score, registry + eviction, pipeline | `app/ingest/` |
 | Gate, filler, adapters (Greenhouse, Lever, Ashby, SmartRecruiters, Workable, Workday, generic), waiting list | `app/apply/` |
 | Mail: Gmail/IMAP, matching, classification, cleanup, OTP, Tier C parsing | `app/mail/` |

@@ -7,3 +7,6 @@ __pycache__/
 *.docx
 .ruff_cache/
 dump.rdb
+scripts/companies/results.jsonl
+scripts/companies/harvested.json
+scripts/companies/*.log

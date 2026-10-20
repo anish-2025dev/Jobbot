@@ -11,8 +11,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SectionName = Literal["education", "experience", "projects", "skills", "achievements", "certifications"]
-DEFAULT_ORDER: list[SectionName] = ["education", "experience", "projects", "skills", "achievements", "certifications"]
+SectionName = Literal["summary", "education", "experience", "projects", "skills", "achievements", "certifications"]
+# The fixed layout: header, summary (when the vault has one), experience, skills, projects,
+# then education and the short lists. Empty sections are left out.
+DEFAULT_ORDER: list[SectionName] = ["summary", "experience", "skills", "projects", "education",
+                                    "certifications", "achievements"]
 
 
 class _M(BaseModel):
@@ -55,6 +58,8 @@ class Recipe(_M):
     bucket: Literal["high", "medium", "low", "stretch", "base"] = "base"
     tailoring: Literal["llm", "heuristic", "cached"] = "heuristic"
     order: list[SectionName] = Field(default_factory=lambda: list(DEFAULT_ORDER))
+    role_id: str | None = None                                  # the target role this resume was built for
+    summary: str | None = None                                  # vault text verbatim (role's, else the general one)
     experience: list[RSection] = Field(default_factory=list)
     projects: list[RSection] = Field(default_factory=list)
     skills: list[RSkillGroup] = Field(default_factory=list)

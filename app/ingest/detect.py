@@ -24,6 +24,9 @@ MANUAL_PORTALS = {
     "glassdoor.com": "glassdoor", "glassdoor.co.in": "glassdoor", "foundit.in": "foundit",
     "instahyre.com": "instahyre", "wellfound.com": "wellfound", "angel.co": "wellfound",
     "shine.com": "shine", "internshala.com": "internshala", "cutshort.io": "cutshort",
+    "hirist.tech": "hirist", "hirist.com": "hirist", "unstop.com": "unstop", "timesjobs.com": "timesjobs",
+    "iimjobs.com": "iimjobs", "apna.co": "apna", "workatastartup.com": "workatastartup",
+    "foundit.sg": "foundit", "monsterindia.com": "foundit",
 }
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -80,6 +83,26 @@ def detect(url: str | None) -> Detected | None:
             req = rm.group(1)
         return Detected("workday", f"{tenant}/{site}" if site else tenant, req, host)
 
+    m = re.match(r"^([a-z0-9-]+)\.recruitee\.com$", host)
+    if m:
+        om = re.match(r"^/o/([^/?#]+)", path)
+        return Detected("recruitee", m.group(1), om.group(1) if om else None, host)
+
+    if host == "ats.rippling.com":
+        m = re.match(rf"^/(?:[a-z]{{2}}-[A-Z]{{2}}/)?([^/]+)/jobs(?:/({_UUID}))?", path, re.I)
+        if m:
+            return Detected("rippling", m.group(1), m.group(2), host)
+
+    m = re.match(r"^([a-z0-9-]+)\.breezy\.hr$", host)
+    if m and m.group(1) not in ("app", "api", "www"):
+        pm = re.match(r"^/p/([0-9a-f]{12})", path)
+        return Detected("breezy", m.group(1), pm.group(1) if pm else None, host)
+
+    if host.endswith(".oraclecloud.com"):
+        m = re.search(r"/sites/([A-Za-z0-9_]+)(?:/job/(\d+))?", path)
+        if m:
+            return Detected("oracle", f"{host}/{m.group(1)}", m.group(2), host)
+
     if host == "apply.workable.com":
         m = re.match(r"^/([^/]+)(?:/j/([A-Z0-9]+))?", path)
         if m:
@@ -87,9 +110,23 @@ def detect(url: str | None) -> Detected | None:
 
     for domain, portal in MANUAL_PORTALS.items():
         if host == domain or host.endswith("." + domain):
-            jm = re.search(r"/jobs/view/(\d+)", path) or re.search(r"-(\d{6,})(?:\?|$)", path)
-            return Detected(portal, None, jm.group(1) if jm else None, host)
+            return Detected(portal, None, _portal_job_id(path, q), host)
     return None
+
+
+def _portal_job_id(path: str, q: dict) -> str | None:
+    """Posting id in a job-board link: a known query parameter (Indeed jk, Glassdoor
+    jobListingId, TimesJobs jobid), else the trailing number of the path (Naukri, foundit,
+    Internshala, Unstop, iimjobs, Hirist), else a trailing hash (Cutshort)."""
+    for key in ("jk", "vjk", "jobListingId", "jobid", "jobId", "job_id", "jid"):
+        if q.get(key):
+            return q[key][0]
+    m = (re.search(r"/jobs/view/(\d+)", path) or re.search(r"(\d{5,})(?:\.html?)?/?$", path)
+         or re.search(r"/(?:jobs?|j)/(\d{4,})", path))
+    if m:
+        return m.group(1)
+    m = re.search(r"/jobs?/[^/]*-([A-Za-z0-9]{6,})/?$", path)
+    return m.group(1) if m and re.search(r"\d", m.group(1)) else None
 
 
 def is_manual_portal(det: Detected | None) -> bool:

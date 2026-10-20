@@ -33,8 +33,12 @@ class Fetcher:
     calls: dict = field(default_factory=dict)
 
     def request(self, source: str, method: str, url: str, *, rate_key: str | None = None,
-                **kw) -> httpx.Response:
+                display_url: str | None = None, **kw) -> httpx.Response:
+        """display_url: what error messages show instead of `url` when the URL itself
+        carries a credential (Jooble puts its key in the path). Errors end up in
+        sources.last_error, so they must never contain one."""
         key = rate_key or source
+        shown = display_url or url
         self.calls[source] = self.calls.get(source, 0) + 1
         last: Exception | None = None
         for attempt in range(self.max_retries):
@@ -46,7 +50,7 @@ class Fetcher:
                 last = e
             else:
                 if r.status_code in (404, 410):
-                    raise NotFoundError(f"{source}: {r.status_code} {url}")
+                    raise NotFoundError(f"{source}: {r.status_code} {shown}")
                 if r.status_code < 400:
                     return r
                 if r.status_code in (429, 500, 502, 503, 504):
@@ -55,15 +59,15 @@ class Fetcher:
                     last = SourceError(f"{source}: HTTP {r.status_code}")
                     self.sleep(min(wait, 60))
                     continue
-                raise SourceError(f"{source}: HTTP {r.status_code} {url}")
+                raise SourceError(f"{source}: HTTP {r.status_code} {shown}")
             self.sleep(min(2 ** attempt + random.random(), 30))
-        raise SourceError(f"{source}: failed after {self.max_retries} attempts: {last}")
+        raise SourceError(f"{source}: failed after {self.max_retries} attempts: {str(last).replace(url, shown)}")
 
     def get_json(self, source: str, url: str, **kw):
-        return _decode(source, url, self.request(source, "GET", url, **kw))
+        return _decode(source, kw.get("display_url") or url, self.request(source, "GET", url, **kw))
 
     def post_json(self, source: str, url: str, body: dict, **kw):
-        return _decode(source, url, self.request(source, "POST", url, json=body, **kw))
+        return _decode(source, kw.get("display_url") or url, self.request(source, "POST", url, json=body, **kw))
 
 
 def _decode(source: str, url: str, r: httpx.Response):
@@ -85,7 +89,7 @@ def make_fetcher(transport: httpx.BaseTransport | None = None, limiter: RateLimi
 def record_source_result(s, source_key: str, ok: bool, error: str | None = None) -> None:
     from sqlalchemy import text
     if ok:
-        s.execute(text("""UPDATE sources SET consecutive_failures = 0, last_ok_at = now(),
+        s.execute(text("""UPDATE sources SET consecutive_failures = 0, last_ok_at = now(), last_error = NULL,
                           status = 'active', paused_until = NULL WHERE key = :k"""), {"k": source_key})
     else:
         s.execute(text("""

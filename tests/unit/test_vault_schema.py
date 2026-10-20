@@ -31,6 +31,23 @@ def test_example_is_valid_and_lint_clean(data):
     assert lint(v) == []
 
 
+def test_legacy_project_limit_is_relaxed_only_for_stored_reads(data):
+    while len(data["projects"]) < 11:
+        project = copy.deepcopy(data["projects"][0])
+        project["id"] = f"legacy-{len(data['projects'])}"
+        for i, bullet in enumerate(project["bullets"]):
+            bullet["id"] = f"{project['id']}-b{i}"
+        data["projects"].append(project)
+    _invalid(data, "at most 10 projects")
+    v = Vault.from_storage(data)
+    assert len(v.projects) == 11
+    _invalid(v.to_storage(), "at most 10 projects")
+    assert Vault.model_json_schema()["properties"]["projects"]["maxItems"] == 10
+    data["projects"][-1]["bullets"][0]["text"] = "short"
+    with pytest.raises(ValidationError):
+        Vault.from_storage(data)
+
+
 def test_roundtrip_storage(data):
     v = Vault.model_validate(data)
     assert Vault.model_validate(v.to_storage()) == v
@@ -119,9 +136,15 @@ def test_skill_categories_unique(data):
 
 def test_size_limit(data):
     big = [{"id": f"b{i}", "text": "x" * 290} for i in range(8)]
+    data["target_roles"], data["expectations"]["role_types"] = [], ["SDE"]
     data["projects"] = [
         {"id": f"p{n}", "name": "P", "tech": ["Python"], "bullets": [dict(b, id=f"p{n}-{b['id']}") for b in big]}
-        for n in range(30)
+        for n in range(10)
+    ]
+    data["experience"] = [
+        {"id": f"e{n}", "company": "C", "title": "T", "employment_type": "internship", "start": "2025-01",
+         "bullets": [dict(b, id=f"e{n}-{b['id']}") for b in big]}
+        for n in range(15)
     ]
     _invalid(data, f"limit is {MAX_VAULT_BYTES}")
 

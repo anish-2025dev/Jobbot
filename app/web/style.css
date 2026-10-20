@@ -153,3 +153,41 @@ details > summary { cursor: pointer; color: var(--action); font-size: 0.9rem; }
   .row { grid-template-columns: 1fr; }
   .row .side { text-align: left; }
 }
+
+/* profile editor */
+.profile { display: grid; grid-template-columns: 14rem 1fr; gap: 1.5rem; align-items: start; }
+.steps { position: sticky; top: 1rem; display: flex; flex-direction: column; gap: 0.1rem; }
+.steps button {
+  display: grid; grid-template-columns: 0.9rem 1fr auto; gap: 0.5rem; align-items: center; text-align: left;
+  background: none; border: 0; font: inherit; font-size: 0.92rem; color: var(--ink); padding: 0.4rem 0.5rem; border-radius: var(--radius-s); cursor: pointer;
+}
+.steps button:hover { background: var(--surface); }
+.steps button[aria-current="step"] { background: var(--surface); font-weight: 700; box-shadow: inset 3px 0 0 var(--action); }
+.steps .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; border: 1.5px solid var(--muted); }
+.steps .dot.ok { background: var(--high); border-color: var(--high); }
+.steps .dot.bad { background: var(--danger); border-color: var(--danger); }
+.steps .count { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.steps .count.bad { color: var(--danger); font-weight: 700; }
+.step-body h2 { margin-top: 0.5rem; }
+.step-body h3 { font-size: 1rem; margin: 1.25rem 0 0.25rem; }
+.toolbar.sticky { position: sticky; top: 0; z-index: 2; background: var(--paper); padding: 0.5rem 0; margin-bottom: 0.25rem; border-bottom: 1px solid var(--line); }
+.req { color: var(--danger); }
+.fld .hint, fieldset .hint { display: block; color: var(--muted); font-size: 0.82rem; margin-top: 0.2rem; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 0.75rem 1rem 1rem; margin-bottom: 0.75rem; }
+.card > header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.card-actions { display: inline-flex; gap: 0.35rem; }
+.picks { border: 0; padding: 0; margin: 0.75rem 0 0; }
+.picks legend { font-size: 0.9rem; padding: 0; margin-bottom: 0.25rem; }
+.pick { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0 1rem 0.35rem 0; font-size: 0.92rem; }
+input[type=date], input[type=month], input[type=tel], input[type=url] {
+  font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-s); padding: 0.45rem 0.6rem; width: 100%;
+}
+.linkish { background: none; border: 0; padding: 0; color: var(--action); font: inherit; cursor: pointer; text-decoration: underline; }
+.btn.linkish { font-size: 0.82rem; margin-top: 0.25rem; }
+.step-nav { display: flex; justify-content: space-between; gap: 0.5rem; margin-top: 2rem; }
+@media (max-width: 900px) {
+  .profile { grid-template-columns: 1fr; }
+  .steps { position: static; flex-direction: row; flex-wrap: wrap; }
+  .steps button { grid-template-columns: 0.9rem auto auto; }
+}

@@ -15,8 +15,9 @@ from pydantic import BaseModel, ValidationError
 
 from app.api.deps import principal, require_admin
 from app import db
+from app.vault import identity as ident_store
 from app.vault import repo
-from app.vault.lint import lint
+from app.vault.lint import lint, profile_gaps
 from app.vault.patch import merge_patch
 from app.vault.schema import Email, Project, Vault
 
@@ -45,9 +46,22 @@ def _validate(data: dict) -> Vault:
         raise HTTPException(422, json.loads(e.json(include_url=False)))
 
 
-def _body(vault: Vault, revision: int, response: Response, updated_at=None) -> dict:
+def _identity_fields(s, user_id: UUID) -> set[str]:
+    return set(_load_identity(s, user_id).model_dump(exclude_none=True))
+
+
+def _load_identity(s, user_id: UUID) -> ident_store.Identity:
+    try:
+        return ident_store.load(s, user_id)
+    except Exception:           # undecryptable (key rotated): treat as empty, never fail the editor
+        return ident_store.Identity()
+
+
+def _body(vault: Vault, revision: int, response: Response, updated_at=None,
+          identity_fields: set[str] | None = None) -> dict:
     response.headers["ETag"] = f'"{revision}"'
-    out = {"revision": revision, "data": vault.to_storage(), "warnings": lint(vault)}
+    out = {"revision": revision, "data": vault.to_storage(), "warnings": lint(vault),
+           "gaps": profile_gaps(vault, identity_fields)}
     if updated_at is not None:
         out["updated_at"] = updated_at.isoformat()
     return out
@@ -70,12 +84,13 @@ def _save(user_id: UUID, vault: Vault, if_match: int | None, response: Response)
                 response.status_code = status.HTTP_201_CREATED
             else:
                 rev = repo.update_vault(s, user_id, vault.to_storage(), if_match)
+            fields = _identity_fields(s, user_id)
         except repo.Conflict as c:
             raise HTTPException(status.HTTP_409_CONFLICT,
                                 {"message": "revision conflict", "current_revision": c.current_revision})
         except repo.NotFound:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no vault yet; PUT without If-Match")
-    return _body(vault, rev, response)
+    return _body(vault, rev, response, identity_fields=fields)
 
 
 def _load_for_edit(user_id: UUID, if_match: str | None) -> tuple[dict, int]:
@@ -110,14 +125,53 @@ def vault_schema() -> dict:
     return Vault.model_json_schema()
 
 
+@router.get("/identity/schema")
+def identity_schema() -> dict:
+    return ident_store.Identity.model_json_schema()
+
+
 @router.get("/users/{user_id}/vault")
 def get_vault(user_id: UUID, response: Response) -> dict:
     with db.user_session(user_id) as s:
         _ensure_user(s, user_id)
         stored = repo.get_vault(s, user_id)
+        fields = _identity_fields(s, user_id)
     if stored is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no vault yet")
-    return _body(Vault.model_validate(stored.data), stored.revision, response, stored.updated_at)
+    try:
+        vault = Vault.model_validate(stored.data)
+    except ValidationError as e:
+        # Saved under older, looser limits (e.g. more than 10 projects): hand it back as-is
+        # with the errors, so the editor can fix it instead of failing to open.
+        response.headers["ETag"] = f'"{stored.revision}"'
+        return {"revision": stored.revision, "data": stored.data, "warnings": [], "gaps": [],
+                "errors": json.loads(e.json(include_url=False)), "updated_at": stored.updated_at.isoformat()}
+    return _body(vault, stored.revision, response, stored.updated_at, identity_fields=fields)
+
+
+# --- identity documents (encrypted, write-mostly) --------------------------------------
+@router.get("/users/{user_id}/identity")
+def get_identity(user_id: UUID) -> dict:
+    """Masked: the last 4 characters of each number. Full values never leave the server."""
+    with db.user_session(user_id) as s:
+        _ensure_user(s, user_id)
+        return {"data": ident_store.masked(_load_identity(s, user_id))}
+
+
+@router.patch("/users/{user_id}/identity")
+def patch_identity(user_id: UUID, patch: dict = Body(...)) -> dict:
+    """JSON Merge Patch: send only what changes; null removes a document."""
+    with db.user_session(user_id) as s:
+        _ensure_user(s, user_id)
+        ident_store.lock(s, user_id)          # held until commit: concurrent edits apply one after another
+        current = _load_identity(s, user_id).model_dump(mode="json", exclude_none=True)
+        try:
+            new = ident_store.Identity.model_validate(merge_patch(current, patch))
+        except ValidationError as e:
+            # never echo the submitted values back
+            raise HTTPException(422, [{"loc": err["loc"], "msg": err["msg"]} for err in e.errors(include_url=False)])
+        ident_store.save(s, user_id, new)
+        return {"data": ident_store.masked(new)}
 
 
 @router.put("/users/{user_id}/vault")
@@ -169,4 +223,6 @@ def delete_project(user_id: UUID, project_id: str, response: Response,
     projects = [p for p in current.get("projects", []) if p.get("id") != project_id]
     if len(projects) == len(current.get("projects", [])):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
-    return _save(user_id, _validate({**current, "projects": projects}), rev, response)
+    roles = [{**r, "projects": [x for x in r.get("projects", []) if x != project_id]}
+             for r in current.get("target_roles", [])]
+    return _save(user_id, _validate({**current, "projects": projects, "target_roles": roles}), rev, response)

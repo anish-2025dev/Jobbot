@@ -40,7 +40,8 @@ def test_pgvector_and_helpers(conn):
 
 def test_sources_seeded(conn):
     rows = dict(conn.execute(text("SELECT key, tier FROM sources")).all())
-    assert len(rows) == 14
+    assert len(rows) == 40              # 14 from 0001 + 26 from 0005
+    assert rows["oracle"] == "A" and rows["remotive"] == "B" and rows["alert_internshala"] == "C"
     assert rows["greenhouse"] == "A" and rows["jsearch"] == "B"
     assert rows["alert_linkedin"] == "C" and rows["career_jsonld"] == "D"
 

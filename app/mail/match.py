@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.llm.client import LLM, LLMError, LLMUnavailable
-from app.mail.classify import ALERT_SENDERS, ATS_SENDERS
+from app.mail.classify import ATS_SENDERS, is_job_alert
 from app.mail.message import Message
 from app.util.hashing import company_key
 from app.util.text import content_words, jaccard
@@ -93,7 +93,7 @@ def match(msg: Message, ctx: UserMailContext, llm: LLM | None = None) -> Match:
                          how="in-reply-to")
     if msg.thread_id and msg.thread_id in ctx.app_threads:
         return Match("application", application_id=ctx.app_threads[msg.thread_id], confidence=1.0, how="thread")
-    if ALERT_SENDERS.search(msg.from_addr):
+    if is_job_alert(msg.from_addr, msg.subject):
         return Match("alert", confidence=0.95, how="alert sender")
 
     domain = msg.domain

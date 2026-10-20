@@ -27,7 +27,9 @@ from app.ingest.models import RawJob
 from app.ingest.normalize import NormalizedJob, families, normalize
 from app.ingest.pipeline import Context, Router, ensure_partitions, process_user
 from app.ingest.scoring import UserProfile, profile_from_vault
-from app.ingest.sources import adzuna, ashby, greenhouse, hn, jsearch, jsonld, lever, smartrecruiters, workday
+from app.ingest.sources import (adzuna, ashby, breezy, greenhouse, hn, jsearch, jsonld, lever, oracle, recruitee,
+                                rippling, search_apis, smartrecruiters, workday)
+from app.ingest.sources.feeds import FEEDS
 from app.util.hashing import canonical_hash
 from app.vault.schema import Vault
 
@@ -63,7 +65,7 @@ def load_profiles(s, user_ids: list[UUID] | None = None) -> list[UserProfile]:
     profiles = []
     for r in s.execute(text(q), params):
         try:
-            vault = Vault.model_validate(r.data)
+            vault = Vault.from_storage(r.data)
         except Exception as e:  # a vault that no longer validates is skipped, not fatal
             log.warning("user %s vault invalid, skipping: %s", r.id, e)
             continue
@@ -78,7 +80,7 @@ def title_filter_for(profiles: list[UserProfile]):
     return lambda title: bool(families(title) & wanted)
 
 
-def fetch_company(f: Fetcher, c: dict, title_filter) -> list[RawJob]:
+def fetch_company(f: Fetcher, c: dict, title_filter, country: str = "India") -> list[RawJob]:
     ats, slug, name = c["ats_type"], c["ats_slug"], c["name"]
     if ats == "greenhouse":
         return greenhouse.fetch(f, slug, name, title_filter)
@@ -90,13 +92,23 @@ def fetch_company(f: Fetcher, c: dict, title_filter) -> list[RawJob]:
         return smartrecruiters.fetch(f, slug, name, title_filter)
     if ats == "workday":
         return workday.fetch(f, slug, c["ats_host"], name, title_filter)
+    if ats == "recruitee":
+        return recruitee.fetch(f, slug, name, title_filter)
+    if ats == "rippling":
+        return rippling.fetch(f, slug, name, title_filter)
+    if ats == "breezy":
+        return breezy.fetch(f, slug, name, title_filter)
+    if ats == "oracle":
+        return oracle.fetch(f, slug, name, title_filter, country=country)
     if ats == "jsonld" and c.get("careers_url"):
         return jsonld.fetch(f, c["careers_url"], name, title_filter)
     return []
 
 
 SOURCE_OF_ATS = {"greenhouse": "greenhouse", "lever": "lever", "ashby": "ashby",
-                 "smartrecruiters": "smartrecruiters", "workday": "workday", "jsonld": "career_jsonld"}
+                 "smartrecruiters": "smartrecruiters", "workday": "workday", "recruitee": "recruitee",
+                 "rippling": "rippling", "breezy": "breezy", "oracle": "oracle", "jsonld": "career_jsonld"}
+POLLABLE_ATS = tuple(k for k in SOURCE_OF_ATS if k != "jsonld")
 
 
 def poll_registry(f: Fetcher, profiles: list[UserProfile], result: RoundResult, *, limit: int = 1000,
@@ -106,12 +118,14 @@ def poll_registry(f: Fetcher, profiles: list[UserProfile], result: RoundResult, 
         active = {src: source_active(s, src) for src in set(SOURCE_OF_ATS.values())}
     due = [c for c in due if active.get(SOURCE_OF_ATS.get(c["ats_type"], ""), False)]
     tf = title_filter_for(profiles)
+    countries = Counter(p.country for p in profiles)
+    country = (countries.most_common(1)[0][0] if countries else "india").title()
     out: list[RawJob] = []
     outcomes: list[tuple[dict, str, int | None, str | None]] = []   # (company, status, n, error)
 
     def one(c):
         try:
-            return c, "ok", fetch_company(f, c, tf), None
+            return c, "ok", fetch_company(f, c, tf, country), None
         except NotFoundError as e:
             return c, "notfound", [], str(e)
         except SourceError as e:
@@ -158,13 +172,15 @@ def poll_aggregators(f: Fetcher, profiles: list[UserProfile], result: RoundResul
         with db.worker_session() as s:
             v = s.execute(text("SELECT data FROM vaults WHERE user_id = :u"), {"u": p.user_id}).scalar()
         exp = (v or {}).get("expectations", {})
-        for role in exp.get("role_types", [])[:3]:
+        roles = [*exp.get("role_types", []), *(r.get("name") for r in (v or {}).get("target_roles", []) if r.get("name"))]
+        for role in list(dict.fromkeys(roles))[:4]:
             for loc in [l for l in exp.get("locations", []) if l.lower() != "remote"][:3] or ["India"]:
                 queries[(role, loc)] += 1
     top = [q for q, _ in queries.most_common(cfg.aggregator_queries_per_run)]
     with db.worker_session() as s:
         js_ok, az_ok = source_active(s, "jsearch"), source_active(s, "adzuna")
         hn_ok = source_active(s, "hn_whos_hiring")
+        active = {k: source_active(s, k) for k in ("jooble", "findwork")}
     for role, loc in top:
         if cfg.jsearch_api_key and js_ok:
             try:
@@ -180,12 +196,45 @@ def poll_aggregators(f: Fetcher, profiles: list[UserProfile], result: RoundResul
             except (SourceError, NotFoundError) as e:
                 _record("adzuna", False, str(e))
                 result.errors.append(f"adzuna: {e}")
+    for role, loc in top:
+        for key, fn, api_key in (("jooble", search_apis.jooble, cfg.jooble_api_key),
+                                 ("findwork", search_apis.findwork, cfg.findwork_api_key)):
+            if not api_key or not active.get(key):
+                continue
+            try:
+                out += fn(f, api_key, role, loc)
+                _record(key, True)
+            except (SourceError, NotFoundError) as e:
+                _record(key, False, str(e))
+                result.errors.append(f"{key}: {e}")
+    out += poll_feeds(f, title_filter_for(profiles), result)
     if include_hn and hn_ok:
         try:
             out += hn.fetch(f)
             _record("hn_whos_hiring", True)
         except (SourceError, NotFoundError) as e:
             _record("hn_whos_hiring", False, str(e))
+    return out
+
+
+def poll_feeds(f: Fetcher, title_filter, result: RoundResult) -> list[RawJob]:
+    """Keyless job-board feeds (app/ingest/sources/feeds.py), each at most every
+    `interval_hours`: several boards ask for only a few calls a day."""
+    out: list[RawJob] = []
+    with db.worker_session() as s:
+        due = [feed for feed in FEEDS.values() if source_active(s, feed.key) and s.execute(text(
+            """SELECT last_ok_at IS NULL OR last_ok_at < now() - make_interval(hours => :h)
+               FROM sources WHERE key = :k"""), {"k": feed.key, "h": feed.interval_hours}).scalar()]
+    for feed in due:
+        try:
+            out += feed.fetch(f, title_filter)
+            _record(feed.key, True)
+        except (SourceError, NotFoundError) as e:
+            _record(feed.key, False, str(e))
+            result.errors.append(f"{feed.key}: {e}")
+        except Exception as e:      # an unexpected payload shape: this feed only
+            log.warning("feed %s failed: %r", feed.key, e)
+            _record(feed.key, False, f"{type(e).__name__}: {e}")
     return out
 
 
@@ -201,7 +250,7 @@ def discover_companies(raws: list[RawJob], result: RoundResult) -> None:
     for r in raws:
         if r.source in SOURCE_OF_ATS.values() or not r.company_slug:
             continue
-        if r.ats in ("greenhouse", "lever", "ashby", "smartrecruiters", "workday"):
+        if r.ats in POLLABLE_ATS:
             key = (r.ats, r.company_slug)
             prev = found.get(key)
             found[key] = (r, (prev[1] if prev else 0) + 1)

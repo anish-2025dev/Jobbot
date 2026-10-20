@@ -62,7 +62,7 @@ def profile_from_vault(user_id, v: Vault, revision: int, settings: dict | None =
     cfg = get_settings()
     settings = settings or {}
     fams: set[str] = set()
-    for rt in v.expectations.role_types:
+    for rt in v.all_role_types:
         fams |= families(rt) or {f for f, pat in ROLE_FAMILIES.items() if re.search(pat, rt.lower())}
     if not fams:
         fams = {"swe"}

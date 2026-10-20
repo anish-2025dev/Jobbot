@@ -72,6 +72,27 @@ def test_create_then_get(api, saved):
     assert "updated_at" in body
 
 
+@pytest.mark.parametrize("patch", [{"pan": "ABCDE1234F"}, {"pan": None}])
+def test_undecryptable_identity_can_be_replaced_or_deleted(api, saved, patch):
+    from sqlalchemy import text
+    from app import db
+
+    assert api.patch(f"/users/{saved}/identity", json={"pan": "ZYXWV9876A"}).status_code == 200
+    with db.worker_session() as s:
+        s.execute(text("UPDATE credentials SET secret_enc = :bad WHERE user_id = :u AND host = 'identity'"),
+                  {"bad": b"undecryptable", "u": saved})
+    assert api.get(f"/users/{saved}/identity").json() == {"data": {}}
+    assert api.get(f"/users/{saved}/vault").status_code == 200
+    response = api.patch(f"/users/{saved}/identity", json=patch)
+    assert response.status_code == 200
+    expected = {"data": {"pan": "••••••234F"}} if patch["pan"] else {"data": {}}
+    assert response.json() == expected
+    assert api.get(f"/users/{saved}/identity").json() == expected
+    with db.worker_session() as s:
+        count = s.execute(text("SELECT count(*) FROM credentials WHERE user_id = :u AND host = 'identity'"), {"u": saved}).scalar()
+        assert count == (1 if patch["pan"] else 0)
+
+
 def test_invalid_vault_rejected_and_not_saved(api, uid):
     bad = copy.deepcopy(EXAMPLE)
     bad["projects"][0]["bullets"][0]["text"] = "short"
@@ -185,6 +206,7 @@ def test_delete_project(api, saved):
     r = api.delete(f"/users/{saved}/vault/projects/proj-retail", headers={"If-Match": '"1"'})
     assert r.status_code == 200
     assert "proj-retail" not in [p["id"] for p in r.json()["data"]["projects"]]
+    assert all("proj-retail" not in t.get("projects", []) for t in r.json()["data"]["target_roles"])
     assert api.delete(f"/users/{saved}/vault/projects/proj-retail",
                       headers={"If-Match": '"2"'}).status_code == 404
 
@@ -192,6 +214,8 @@ def test_delete_project(api, saved):
 def test_cannot_delete_last_project(api, uid):
     one = copy.deepcopy(EXAMPLE)
     one["projects"] = one["projects"][:1]
+    for r in one["target_roles"]:
+        r["projects"] = [p for p in r["projects"] if p == "proj-job-bot"]
     api.put(f"/users/{uid}/vault", json=one)
     r = api.delete(f"/users/{uid}/vault/projects/proj-job-bot", headers={"If-Match": '"1"'})
     assert r.status_code == 422

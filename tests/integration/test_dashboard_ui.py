@@ -70,14 +70,20 @@ def test_signup_and_every_view_renders(server, browser):
     httpx.put(f"{server}/users/{sess['user_id']}/vault", json=VAULT,
               headers={"Authorization": f"Bearer {sess['token']}"}).raise_for_status()
     for name, heading in [("Ranked jobs", "Ranked jobs"), ("Waiting", "Waiting for you"), ("Referrals", "Referral outreach"),
-                          ("Applications", "Applications"), ("Vault", "Vault"), ("Settings", "Settings")]:
+                          ("Applications", "Applications"), ("Profile", "Profile"), ("Settings", "Settings")]:
         page.get_by_role("button", name=name, exact=True).click()
         page.wait_for_selector(f"h1:has-text('{heading}')")
-    # vault editor loads the saved vault and validates it
-    page.get_by_role("button", name="Vault", exact=True).click()
-    page.wait_for_function("document.querySelector('#vault-json')?.value.includes('Sample Candidate')")
-    page.get_by_role("button", name="Check").click()
-    page.wait_for_selector("text=Valid. Nothing saved yet.")
+    # profile form loads the saved vault, edits a field, saves with If-Match
+    page.get_by_role("button", name="Profile", exact=True).click()
+    page.wait_for_function("document.querySelector('#f-personal-full_name')?.value === 'Sample Candidate'")
+    page.locator("nav.steps").get_by_role("button", name="Target roles").click()
+    page.wait_for_function("document.querySelector('#f-target_roles-1-name')?.value === 'Data Engineer'")
+    page.fill("#f-target_roles-1-name", "Data and Analytics Engineer")
+    page.get_by_role("button", name="Save profile").click()
+    page.wait_for_selector("text=Saved, revision 2")
+    saved = httpx.get(f"{server}/users/{sess['user_id']}/vault", headers={"Authorization": f"Bearer {sess['token']}"}).json()
+    assert saved["data"]["target_roles"][1]["name"] == "Data and Analytics Engineer"
+    assert saved["gaps"] and all({"path", "label", "asked"} <= set(g) for g in saved["gaps"])
     # settings toggle round-trips to the API
     page.get_by_role("button", name="Settings", exact=True).click()
     page.check("#auto_apply")

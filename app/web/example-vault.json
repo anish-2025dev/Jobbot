@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "personal": {
     "full_name": "Sample Candidate",
     "email": "sample.candidate@example.com",
@@ -17,7 +17,18 @@
         "label": "LinkedIn",
         "url": "https://www.linkedin.com/in/sample-candidate"
       }
-    ]
+    ],
+    "date_of_birth": "2005-03-14",
+    "gender": "male",
+    "nationality": "Indian",
+    "marital_status": "single",
+    "current_address": {
+      "line1": "12 Example Street",
+      "city": "Delhi",
+      "state": "Delhi",
+      "pincode": "110001",
+      "country": "India"
+    }
   },
   "education": [
     {
@@ -33,7 +44,22 @@
         "DBMS",
         "Computer Networks",
         "DSA"
-      ]
+      ],
+      "score": 8.4,
+      "score_scale": "cgpa_10",
+      "active_backlogs": 0,
+      "backlog_history": 0
+    },
+    {
+      "level": "class_xii",
+      "institution": "Example Senior Secondary School",
+      "degree": "Class XII",
+      "field_of_study": "Science (PCM)",
+      "board": "CBSE",
+      "graduation_year": 2023,
+      "score": 91.2,
+      "score_scale": "percentage",
+      "show_on_resume": false
     }
   ],
   "experience": [
@@ -104,6 +130,9 @@
           "id": "jb-4",
           "text": "Wrote 95 unit and integration tests run in Docker Compose against a throwaway database per session"
         }
+      ],
+      "roles": [
+        "sde"
       ]
     },
     {
@@ -205,6 +234,9 @@
           "id": "rt-4",
           "text": "Reduced full pipeline runtime from 18 minutes to 6 minutes with incremental models"
         }
+      ],
+      "roles": [
+        "data"
       ]
     }
   ],
@@ -290,7 +322,15 @@
       "Noida"
     ],
     "work_authorization": "Indian citizen",
-    "requires_sponsorship": false
+    "requires_sponsorship": false,
+    "current_ctc_lpa": 0,
+    "currently_studying": true,
+    "currently_employed": false,
+    "preferred_work_mode": "any",
+    "willing_night_shifts": true,
+    "willing_to_sign_bond": false,
+    "has_laptop": true,
+    "education_gap_years": 0
   },
   "expectations": {
     "locations": [
@@ -307,13 +347,81 @@
       "hybrid",
       "remote"
     ],
-    "role_types": [
-      "Software Development Engineer",
-      "Backend Engineer",
-      "Full Stack Engineer"
-    ],
+    "role_types": [],
     "min_ctc_lpa": 6,
     "experience_level": "fresher",
     "blacklisted_companies": []
-  }
+  },
+  "background": {
+    "father_name": "Sample Parent",
+    "languages": [
+      {
+        "name": "English",
+        "proficiency": "fluent"
+      },
+      {
+        "name": "Hindi",
+        "proficiency": "native"
+      }
+    ],
+    "eeo_disclosure": "decline"
+  },
+  "summary": "Final-year computer science student who builds backend services and data pipelines, with an internship shipping production APIs.",
+  "target_roles": [
+    {
+      "id": "sde",
+      "name": "Software Development Engineer",
+      "title_keywords": [
+        "SDE",
+        "Software Engineer",
+        "Backend Engineer",
+        "Backend Developer",
+        "Full Stack Developer",
+        "Graduate Engineer Trainee"
+      ],
+      "summary": "Backend-focused software engineer: REST APIs in FastAPI and ASP.NET Core, PostgreSQL schema design, caching with Redis, and well-tested code.",
+      "skills": [
+        "Python",
+        "C#",
+        "SQL",
+        "FastAPI",
+        "ASP.NET Core",
+        "PostgreSQL",
+        "Redis",
+        "Docker",
+        "React",
+        "Git"
+      ],
+      "projects": [
+        "proj-job-bot",
+        "proj-proctor"
+      ]
+    },
+    {
+      "id": "data",
+      "name": "Data Engineer",
+      "title_keywords": [
+        "Data Engineer",
+        "Data Analyst",
+        "Analytics Engineer",
+        "BI Developer",
+        "ETL Developer"
+      ],
+      "summary": "Data engineer who models warehouses with dbt, orchestrates pipelines with Airflow and reports in Power BI, backed by strong SQL and Python.",
+      "skills": [
+        "SQL",
+        "Python",
+        "dbt",
+        "Airflow",
+        "PostgreSQL",
+        "Power BI",
+        "MLflow",
+        "scikit-learn"
+      ],
+      "projects": [
+        "proj-retail",
+        "proj-netsec"
+      ]
+    }
+  ]
 }

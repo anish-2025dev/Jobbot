@@ -302,7 +302,9 @@ def test_onboarding_import_text_and_pdf(api):
     r = api.post(f"/users/{uid}/onboarding/import", data={"text": RESUME_TXT}, headers=h).json()
     d = r["draft"]
     assert d["personal"]["full_name"] == "Anish Example" and d["personal"]["email"] == "anish.example@gmail.com"
-    assert d["education"][0]["graduation_year"] == 2027 and "8.4" in d["education"][0]["grade"]
+    edu = d["education"][0]
+    assert (edu["graduation_year"], edu["score"], edu["score_scale"]) == (2027, 8.4, "cgpa_10")
+    assert edu["institution"] == "Delhi Technological University" and edu["field_of_study"] == "Computer Science and Engineering"
     exp = d["experience"][0]
     assert exp["start"] == "2026-07" and exp["end"] == "2026-10" and len(exp["bullets"]) == 2
     assert d["projects"][0]["name"] == "Proctorly" and "react" in d["projects"][0]["tech"]

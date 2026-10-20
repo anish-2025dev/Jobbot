@@ -42,6 +42,11 @@ DEFAULT_LIMITS = {
     # Keyed APIs: their free tiers are monthly; per-second limits keep bursts sane.
     "jsearch": Limit(0.2, 2), "adzuna": Limit(0.5, 3), "hn_whos_hiring": Limit(1.0, 5),
     "career_jsonld": Limit(0.5, 3), "career_generic": Limit(0.2, 2),
+    "recruitee": Limit(1.0, 5), "rippling": Limit(1.0, 5), "breezy": Limit(1.0, 5), "oracle": Limit(0.5, 3),
+    "jooble": Limit(0.5, 3), "findwork": Limit(0.5, 3),
+    # Keyless boards: a handful of calls per poll, polled every few hours (feeds.py)
+    "remotive": Limit(0.2, 3), "remoteok": Limit(0.2, 2), "arbeitnow": Limit(0.5, 2), "jobicy": Limit(0.2, 2),
+    "himalayas": Limit(0.5, 5), "themuse": Limit(0.5, 3), "workingnomads": Limit(0.2, 2),
     # Email-finder providers and Gmail
     "apollo": Limit(0.5, 3), "hunter": Limit(0.5, 3), "snov": Limit(0.5, 3), "gmail": Limit(5.0, 20),
 }

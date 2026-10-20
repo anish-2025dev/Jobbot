@@ -51,6 +51,20 @@ def build(app: dict, vault: Vault, recipe: Recipe | None, *, expires_at: datetim
     if recipe:
         answers.update(recipe.answers)
     links = {l.label: l.url for l in vault.personal.links}
+    p = vault.personal
+    first, middle, last = p.name_parts()
+    profile = {"First name": first, "Middle name": middle, "Last name": last,
+               "Date of birth": "/".join(reversed(p.date_of_birth.split("-"))) if p.date_of_birth else None,
+               "Father's name": vault.background.father_name,
+               "Address": ", ".join(x for x in (p.current_address.line1, p.current_address.line2, p.current_address.city,
+                                                p.current_address.state, p.current_address.pincode) if x)
+               if p.current_address else None}
+    for level, name in (("class_xii", "Class XII"), ("class_x", "Class X")):
+        school = vault.school(level)
+        if school is not None and school.score_text():
+            profile[name] = f"{school.score_text()}, {school.board or school.institution}, {school.graduation_year}"
+    # Identity documents (PAN, passport...) are deliberately not here: Ready Packs are stored in the DB.
+    profile = {k: val for k, val in profile.items() if val}
     pack = {
         "title": app["title"], "company": app["company_name"], "apply_url": app["apply_url"],
         "location": app.get("location"), "score": app.get("score"), "bucket": app.get("bucket"),
@@ -61,7 +75,7 @@ def build(app: dict, vault: Vault, recipe: Recipe | None, *, expires_at: datetim
         "continue_url": f"{base}/app/#/apply/{aid}",
         "cover_letter": recipe.cover_letter if recipe else "",
         "copy": {"Full name": vault.personal.full_name, "Email": vault.personal.email, "Phone": vault.personal.phone,
-                 "Location": f"{vault.personal.location.city}, {vault.personal.location.country}", **links, **answers},
+                 "Location": f"{vault.personal.location.city}, {vault.personal.location.country}", **profile, **links, **answers},
         "failure": {"step": app.get("failure_step"), "reason": app.get("failure_reason"),
                     "screenshot": app.get("screenshot_url")},
         "gaps": gap_notes(vault, list(app.get("missing_skills") or [])),

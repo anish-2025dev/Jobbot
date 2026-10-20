@@ -25,7 +25,7 @@ from app.util.hashing import company_key, h64
 
 log = logging.getLogger(__name__)
 TAU_SECONDS = 30 * 86400
-PROBE_ORDER = ("greenhouse", "lever", "ashby", "smartrecruiters")
+PROBE_ORDER = ("greenhouse", "lever", "ashby", "smartrecruiters", "recruitee", "rippling", "breezy")
 
 # SQL predicate: companies that must never be evicted (section 5, rule 1).
 PROTECTED_SQL = """(
@@ -176,9 +176,10 @@ def slug_candidates(name: str) -> list[str]:
 def probe(f: Fetcher, ref: CompanyRef) -> CompanyRef | None:
     """Find (ats, slug) for a company: careers URL first, then name-derived
     slugs against each keyless ATS API."""
-    from app.ingest.sources import ashby, greenhouse, lever, smartrecruiters, workday
+    from app.ingest.sources import ashby, breezy, greenhouse, lever, oracle, recruitee, rippling, smartrecruiters, workday
     probers = {"greenhouse": greenhouse.probe, "lever": lever.probe, "ashby": ashby.probe,
-               "smartrecruiters": smartrecruiters.probe}
+               "smartrecruiters": smartrecruiters.probe, "recruitee": recruitee.probe, "rippling": rippling.probe,
+               "breezy": breezy.probe, "oracle": oracle.probe}
     det = detect(ref.careers_url) if ref.careers_url else None
     if det and det.ats in probers and det.slug:
         try:
@@ -210,9 +211,10 @@ def probe(f: Fetcher, ref: CompanyRef) -> CompanyRef | None:
 def _stored_board_status(f: Fetcher, ats: str | None, slug: str | None, host: str | None) -> str:
     """'ok' (board answers), 'gone' (404/410), or 'unknown' (couldn't tell: outage, odd payload,
     or an empty board, which may just mean no openings this week)."""
-    from app.ingest.sources import ashby, greenhouse, lever, smartrecruiters, workday
+    from app.ingest.sources import ashby, breezy, greenhouse, lever, oracle, recruitee, rippling, smartrecruiters, workday
     probers = {"greenhouse": greenhouse.probe, "lever": lever.probe, "ashby": ashby.probe,
-               "smartrecruiters": smartrecruiters.probe}
+               "smartrecruiters": smartrecruiters.probe, "recruitee": recruitee.probe, "rippling": rippling.probe,
+               "breezy": breezy.probe, "oracle": oracle.probe}
     if not slug or ats in (None, "unknown"):
         return "gone"
     try:

@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     jsearch_api_key: str = ""
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""
+    jooble_api_key: str = ""          # jooble.org/api/about (free)
+    findwork_api_key: str = ""        # findwork.dev/developers (free)
     aggregator_queries_per_run: int = 4
 
     # C1 storage budget
