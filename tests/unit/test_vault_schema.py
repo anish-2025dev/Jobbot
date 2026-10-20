@@ -119,6 +119,7 @@ def test_skill_categories_unique(data):
 
 def test_size_limit(data):
     big = [{"id": f"b{i}", "text": "x" * 290} for i in range(8)]
+    data["target_roles"], data["expectations"]["role_types"] = [], ["SDE"]
     data["projects"] = [
         {"id": f"p{n}", "name": "P", "tech": ["Python"], "bullets": [dict(b, id=f"p{n}-{b['id']}") for b in big]}
         for n in range(10)

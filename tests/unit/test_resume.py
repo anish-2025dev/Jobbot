@@ -261,7 +261,8 @@ def test_text_and_typst_render(v):
     view = build_view(v, r)
     txt = to_text(view)
     assert txt.startswith("Sample Candidate\n") and "EXPERIENCE" in txt and "PROJECTS" in txt
-    assert txt.index("EDUCATION") < txt.index("EXPERIENCE") < txt.index("PROJECTS") < txt.index("SKILLS")
+    # fixed layout: summary, experience, skills, projects, education
+    assert txt.index("EXPERIENCE") < txt.index("TECHNICAL SKILLS") < txt.index("PROJECTS") < txt.index("EDUCATION")
     assert "#" in to_typst(view)   # renders without template errors
 
 

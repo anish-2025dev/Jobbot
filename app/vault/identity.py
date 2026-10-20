@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, StringConstraints, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -20,8 +20,12 @@ from app.vault.schema import Date, Short
 HOST = "identity"
 
 
+def _upper(value):
+    return value.strip().upper() if isinstance(value, str) else value
+
+
 def _id(pattern: str):
-    return Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, pattern=pattern)]
+    return Annotated[str, BeforeValidator(_upper), StringConstraints(pattern=pattern)]
 
 
 class Passport(BaseModel):

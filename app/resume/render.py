@@ -34,6 +34,15 @@ def latex_escape(value: object) -> str:
     return _LATEX_RE.sub(lambda m: _LATEX_SPECIAL[m.group()], text)
 
 
+def latex_href(url: object) -> str:
+    """Escape a link target for \\href{}: hyperref takes % and # escaped; anything that
+    could close the group never gets here (model._safe_href)."""
+    text = str(url)
+    if any(ch in text for ch in "{}\\ \n"):
+        raise ValueError("unsafe link target")
+    return text.replace("%", r"\%").replace("#", r"\#")
+
+
 def typst_string(value: object) -> str:
     text = "".join(ch for ch in str(value) if ch == "\n" or ord(ch) >= 32)
     text = text.replace(" -- ", " – ")
@@ -50,19 +59,24 @@ def _env(kind: str) -> Environment:
         undefined=StrictUndefined, autoescape=False, keep_trailing_newline=True,
     )
     env.filters["e"] = latex_escape
+    env.filters["href"] = latex_href
     env.filters["s"] = typst_string
     return env
 
 
 def to_latex(view: ResumeView, paper: str = "a4paper") -> str:
     return _env("tex").get_template("resume.tex.j2").render(
-        name=view.name, contact=view.contact, sections=view.sections, paper=paper)
+        name=view.name, contact=view.contact, contact_links=_links(view), sections=view.sections, paper=paper)
 
 
 def to_typst(view: ResumeView, paper: str = "a4paper") -> str:
     typst_paper = {"a4paper": "a4", "letterpaper": "us-letter"}.get(paper, "a4")
     return _env("typ").get_template("resume.typ.j2").render(
-        name=view.name, contact=view.contact, sections=view.sections, paper=typst_paper)
+        name=view.name, contact=view.contact, contact_links=_links(view), sections=view.sections, paper=typst_paper)
+
+
+def _links(view: ResumeView) -> list[tuple[str, str | None]]:
+    return view.contact_links or [(c, None) for c in view.contact]
 
 
 def to_text(view: ResumeView) -> str:
@@ -70,6 +84,8 @@ def to_text(view: ResumeView) -> str:
     out = [view.name, " | ".join(view.contact), ""]
     for s in view.sections:
         out.append(s.title.upper())
+        if s.paragraph:
+            out.append(s.paragraph)
         for e in s.entries:
             head = e.heading + (f", {e.sub}" if e.sub else "")
             out.append(f"{head}  {e.right.replace('--', '-')}".rstrip())
@@ -133,12 +149,15 @@ def to_docx(view: ResumeView, paper: str = "a4paper") -> bytes:
         h = para(s.title.upper(), bold=True, size=11.5)
         h.paragraph_format.space_before = Pt(6)
         rule_below(h)
+        if s.paragraph:
+            para(s.paragraph)
         for e in s.entries:
             p = doc.add_paragraph()
             p.paragraph_format.tab_stops.add_tab_stop(usable, WD_TAB_ALIGNMENT.RIGHT)
             p.add_run(e.heading).bold = True
             if e.sub:
-                p.add_run(f", {e.sub}")
+                p.add_run(", ")
+                p.add_run(e.sub).italic = True
             if e.right:
                 p.add_run(f"\t{e.right.replace('--', '–')}")
             if e.second:
