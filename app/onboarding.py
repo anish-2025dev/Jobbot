@@ -85,20 +85,64 @@ def split_sections(text_: str) -> dict[str, list[str]]:
     return out
 
 
+_DANGLING = re.compile(r"(\b(of|and|or|the|to|with|using|for|in|on|by|a|an|via|from|into|across|at|as|including|"
+                       r"while|than|per|over|under|between)|[,/(&+-])$", re.I)
+
+
+def _looks_like_title(line: str) -> bool:
+    """'Name | C#, Redis' or 'Name, Python, FastAPI, Redis': a project/job title line, not prose."""
+    if "|" in line:
+        return True
+    parts = [p.strip() for p in line.split(",")]
+    return len(parts) >= 3 and sum(len(p) for p in parts[1:]) / (len(parts) - 1) <= 22
+
+
+def _continues(prev: str, line: str) -> bool:
+    """Is `line` the wrapped rest of the bullet `prev` (PDF text breaks lines mid-sentence)?"""
+    if _RANGE.search(line):
+        return False                                   # a date range starts a new entry
+    if line[:1].islower() or line[:1] in ",;:)&":
+        return True                                    # sentences don't start lowercase
+    tail = prev.rstrip()
+    if _DANGLING.search(tail):
+        return True                                    # "... separation of" / "... ~8,000 requests/second,"
+    if _looks_like_title(line):
+        return False
+    # an unfinished bullet followed by a line that finishes a sentence
+    return not tail.endswith((".", "!", "?", ";")) and line.rstrip().endswith((".", "!", "?"))
+
+
 def _entries(lines: list[str]) -> list[tuple[str, list[str], list[str]]]:
-    """[(header line, extra header lines, bullets)]: a non-bullet line starts an entry."""
+    """[(header line, extra header lines, bullets)]: a non-bullet line starts an entry
+    unless it is the wrapped continuation of the previous bullet."""
     out: list[tuple[str, list[str], list[str]]] = []
     for line in lines:
         if _BULLET.match(line):
             if out:
                 out[-1][2].append(_BULLET.sub("", line).strip())
-        elif out and not out[-1][2] and len(out[-1][1]) < 2:
+            else:
+                out.append(("", [], [_BULLET.sub("", line).strip()]))
+        elif out and out[-1][2] and _continues(out[-1][2][-1], line):
+            out[-1][2][-1] += " " + line
+        elif out and not out[-1][2] and len(out[-1][1]) < 3:
             out[-1][1].append(line)
-        elif out and out[-1][2] and len(line) > 60 and not _RANGE.search(line):
-            out[-1][2][-1] += " " + line                     # wrapped bullet continuation
         else:
             out.append((line, [], []))
     return out
+
+
+_CITIES = ("delhi", "new delhi", "gurugram", "gurgaon", "noida", "faridabad", "ghaziabad", "bengaluru", "bangalore",
+           "mumbai", "pune", "hyderabad", "chennai", "kolkata", "ahmedabad", "jaipur", "chandigarh", "lucknow",
+           "indore", "kochi", "coimbatore", "remote")
+
+
+def _home_city(lines: list[str]) -> str:
+    for line in lines:
+        low = line.lower()
+        for c in _CITIES:
+            if re.search(rf"\b{c}\b", low) and c != "remote":
+                return c.title()
+    return ""
 
 
 def heuristic_draft(text_: str, today: date | None = None) -> dict:
@@ -117,6 +161,7 @@ def heuristic_draft(text_: str, today: date | None = None) -> dict:
         if url not in [l["url"] for l in links]:
             links.append({"label": label, "url": url})
     used: set[str] = set()
+    city = _home_city(head[:10])
 
     education = []
     for header, extra, bullets in _entries(sec.get("education", [])):
@@ -153,7 +198,10 @@ def heuristic_draft(text_: str, today: date | None = None) -> dict:
     for header, extra, bullets in _entries(sec.get("projects", [])):
         if not bullets:
             continue
-        name_ = re.split(r"\s+[|–—-]\s+|\s{2,}|:", header)[0].strip()[:120]
+        name_ = re.split(r"\s+[|–—-]\s+|\s{2,}|:", header)[0].strip()
+        if "," in name_ and _looks_like_title(name_):
+            name_ = name_.split(",")[0].strip()        # "Name, Python, FastAPI, Redis": tech goes to `tech`
+        name_ = name_[:120]
         tech_line = " ".join([header, *extra])
         tech = extract_skills(tech_line) or extract_skills(" ".join(bullets))
         projects.append({"id": _slug(f"proj-{name_}", used), "name": name_ or "Project",
@@ -174,10 +222,11 @@ def heuristic_draft(text_: str, today: date | None = None) -> dict:
 
     return {"schema_version": 1,
             "personal": {"full_name": name, "email": email or "", "phone": phone or "",
-                         "location": {"city": "", "country": "India"}, "links": links[:8]},
+                         "location": {"city": city, "country": "India"}, "links": links[:8]},
             "education": education, "experience": experience, "projects": projects, "skills": skills,
             "achievements": achievements, "standard_answers": {},
-            "expectations": {"locations": [], "remote_types": ["onsite", "hybrid", "remote"],
+            # starts at the city on the resume (or India); the user edits it in the review step
+            "expectations": {"locations": [city or "India"], "remote_types": ["onsite", "hybrid", "remote"],
                              "role_types": ["Software Development Engineer"], "experience_level": "fresher"}}
 
 

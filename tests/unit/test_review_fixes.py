@@ -136,3 +136,34 @@ def test_generic_adapter_is_not_in_the_registry():
     from app.apply.adapters import get_adapter, names
     assert "generic" not in names()
     assert get_adapter("generic", "https://careers.example.com/jobs/1") is None
+
+
+# --- resume import ----------------------------------------------------------------------
+WRAPPED = """Sample Person
+New Delhi, India | sample@example.com
+PROJECTS
+Employee Access API | C#, ASP.NET Core, Redis
+• Engineered a REST API applying layered architecture and Entity Framework Core for modularity and separation of
+concerns.
+• Integrated Redis caching to improve performance of frequently accessed
+resources and reduce unnecessary database operations.
+• Load-tested endpoints using NBomber, achieving approximately 8,000 requests/second
+under the tested mixed-scenario workload.
+Message Broker | C++17, Linux
+• Implemented leader/follower replication and manual leader promotion;
+validated behavior through recovery and persistence testing.
+"""
+
+
+def test_import_joins_wrapped_bullet_lines_instead_of_inventing_projects():
+    from app.onboarding import heuristic_draft, import_resume
+    d = heuristic_draft(WRAPPED)
+    assert [p["name"] for p in d["projects"]] == ["Employee Access API", "Message Broker"]
+    first = [b["text"] for b in d["projects"][0]["bullets"]]
+    assert first[0].endswith("separation of concerns.")
+    assert first[1].endswith("reduce unnecessary database operations.")
+    assert first[2].endswith("under the tested mixed-scenario workload.")
+    assert d["projects"][1]["bullets"][0]["text"].endswith("persistence testing.")
+    # home city from the header becomes the starting target location, so the draft validates
+    assert d["personal"]["location"]["city"] == "Delhi" and d["expectations"]["locations"] == ["Delhi"]
+    assert not [e for e in import_resume(WRAPPED)["errors"] if "locations" in str(e.get("loc"))]
