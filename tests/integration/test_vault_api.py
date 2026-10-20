@@ -185,6 +185,7 @@ def test_delete_project(api, saved):
     r = api.delete(f"/users/{saved}/vault/projects/proj-retail", headers={"If-Match": '"1"'})
     assert r.status_code == 200
     assert "proj-retail" not in [p["id"] for p in r.json()["data"]["projects"]]
+    assert all("proj-retail" not in t.get("projects", []) for t in r.json()["data"]["target_roles"])
     assert api.delete(f"/users/{saved}/vault/projects/proj-retail",
                       headers={"If-Match": '"2"'}).status_code == 404
 
@@ -192,6 +193,8 @@ def test_delete_project(api, saved):
 def test_cannot_delete_last_project(api, uid):
     one = copy.deepcopy(EXAMPLE)
     one["projects"] = one["projects"][:1]
+    for r in one["target_roles"]:
+        r["projects"] = [p for p in r["projects"] if p == "proj-job-bot"]
     api.put(f"/users/{uid}/vault", json=one)
     r = api.delete(f"/users/{uid}/vault/projects/proj-job-bot", headers={"If-Match": '"1"'})
     assert r.status_code == 422

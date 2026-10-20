@@ -41,12 +41,19 @@ function assignIds(d) {
     return { ...o, id, bullets };
   });
   const roleIds = new Set((d.target_roles || []).map((r) => r.id).filter(Boolean));
+  const roles = (d.target_roles || []).map((r) => ({ ...r, id: r.id || uniq(slug(r.name), roleIds) }));
+  const experience = fix(d.experience, "exp", (o) => `${o.company || ""} ${o.title || ""}`);
+  const projects = fix(d.projects, "proj", (o) => o.name);
+  // A removed project or role must not linger in the lists that point at it.
+  const pids = new Set(projects.map((p) => p.id));
+  const rids = new Set(roles.map((r) => r.id));
+  const keepRoles = (o) => ({ ...o, roles: (o.roles || []).filter((x) => rids.has(x)) });
   return {
     ...d,
-    experience: fix(d.experience, "exp", (o) => `${o.company || ""} ${o.title || ""}`),
-    projects: fix(d.projects, "proj", (o) => o.name),
+    experience: experience.map(keepRoles),
+    projects: projects.map(keepRoles),
     achievements: (d.achievements || []).map((a) => ({ ...a, id: a.id || uniq("ach", taken) })),
-    target_roles: (d.target_roles || []).map((r) => ({ ...r, id: r.id || uniq(slug(r.name), roleIds) })),
+    target_roles: roles.map((r) => ({ ...r, projects: (r.projects || []).filter((x) => pids.has(x)) })),
   };
 }
 

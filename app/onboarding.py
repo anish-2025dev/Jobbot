@@ -239,7 +239,7 @@ def parse_education(raw: list[str]) -> list[dict]:
                 entry["board"] = bm.group(1).upper() if len(bm.group(1)) <= 5 else bm.group(1).title()
             entry["show_on_resume"] = False
         else:
-            fm = re.search(r"\b(?:in|of)\s+([A-Z][A-Za-z &]+?(?:Engineering|Science|Technology|Applications|Commerce|Arts))", lines[d])
+            fm = re.search(r"\b(?:in|of)\s+([A-Z][A-Za-z &()-]+?)\s*(?:[,;|]|\s{2,}|\b(?:c?gpa|cpi)\b|$)", lines[d], re.I)
             if fm:
                 entry["field_of_study"] = fm.group(1).strip()[:120]
                 entry["degree"] = entry["degree"].split(" in ")[0].split(" of ")[0].strip()[:120] or entry["degree"]

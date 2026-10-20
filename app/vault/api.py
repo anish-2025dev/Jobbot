@@ -218,4 +218,6 @@ def delete_project(user_id: UUID, project_id: str, response: Response,
     projects = [p for p in current.get("projects", []) if p.get("id") != project_id]
     if len(projects) == len(current.get("projects", [])):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
-    return _save(user_id, _validate({**current, "projects": projects}), rev, response)
+    roles = [{**r, "projects": [x for x in r.get("projects", []) if x != project_id]}
+             for r in current.get("target_roles", [])]
+    return _save(user_id, _validate({**current, "projects": projects, "target_roles": roles}), rev, response)

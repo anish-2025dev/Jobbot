@@ -232,7 +232,7 @@ def test_import_education_pairs_degree_with_institution_not_location():
     assert [(e["level"], e["institution"], e["degree"]) for e in got] == [
         ("bachelors", "Indian Institute of Information Technology", "B.Tech"),
         ("class_xii", "Delhi Public School, R.K. Puram", "Class XII")]
-    assert got[0]["field_of_study"] == "Computer Science" and got[0]["score"] == 8.52 and got[0]["end"] == "2026-05"
+    assert got[0]["field_of_study"] == "Computer Science and Engineering" and got[0]["score"] == 8.52 and got[0]["end"] == "2026-05"
     assert got[1]["board"] == "CBSE" and got[1]["score_scale"] == "percentage" and got[1]["show_on_resume"] is False
 
 
