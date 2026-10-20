@@ -26,7 +26,7 @@ COPY --chown=jobbot . .
 USER jobbot
 # Pre-warm Tectonic's TeX bundle so resume compiles never need the network at
 # run time, and fail the build now if the template doesn't compile.
-RUN RESUME_ENGINE=tectonic DATABASE_URL=postgresql+psycopg://x/x ENCRYPTION_KEY=build \
+RUN RESUME_ENGINE=tectonic RESUME_COMPILE_TIMEOUT=1200 DATABASE_URL=postgresql+psycopg://x/x ENCRYPTION_KEY=build \
     python -m app.resume.cli --vault examples/vault.example.json --jd examples/jd.example.txt \
         --title "Software Development Engineer I" --company "Northwind" --out /tmp/warm.pdf \
     && rm -f /tmp/warm.pdf

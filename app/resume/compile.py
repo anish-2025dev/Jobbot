@@ -8,6 +8,7 @@ shell escape disabled because the source contains user text.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -19,7 +20,9 @@ from app.resume.model import ResumeView
 from app.resume.render import to_latex, to_typst
 
 ENGINES = ("tectonic", "xelatex", "pdflatex", "typst")
-TIMEOUT_S = 90
+# Normal compiles take seconds. Tectonic's very first run also downloads its TeX bundle, which can
+# take several minutes on a small VM: the Docker build's warm-up step raises this limit for that run.
+TIMEOUT_S = int(os.environ.get("RESUME_COMPILE_TIMEOUT", "90"))
 
 
 class CompileError(Exception):
